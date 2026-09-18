@@ -65,8 +65,9 @@ class MatchData {
   });
 
   bool get hasStats =>
-      homeShots + awayShots + homeCorners + awayCorners + homeFouls +
-      awayFouls + homeCards + awayCards + homeSaves + awaySaves > 0;
+      [homeShots, awayShots, homeOn, awayOn, homeCorners, awayCorners,
+       homeFouls, awayFouls, homeCards, awayCards, homeThrow, awayThrow,
+       homeSaves, awaySaves].any((v) => v >= 0);
 
   MatchData copyWith({
     int? homeShots, int? awayShots, int? homeOn, int? awayOn,
@@ -139,10 +140,10 @@ class FotMobService {
           live: live,
           scoreHome: (home['score'] as num?)?.toInt(),
           scoreAway: (away['score'] as num?)?.toInt(),
-          homeShots: 0, awayShots: 0, homeOn: 0, awayOn: 0,
-          homeCorners: 0, awayCorners: 0, homeFouls: 0, awayFouls: 0,
-          homeCards: 0, awayCards: 0, homeThrow: 0, awayThrow: 0,
-          homeSaves: 0, awaySaves: 0,
+          homeShots: -1, awayShots: -1, homeOn: -1, awayOn: -1,
+          homeCorners: -1, awayCorners: -1, homeFouls: -1, awayFouls: -1,
+          homeCards: -1, awayCards: -1, homeThrow: -1, awayThrow: -1,
+          homeSaves: -1, awaySaves: -1,
         ));
       }
     }
@@ -171,7 +172,7 @@ class FotMobService {
     final periods = (statsRoot['Periods'] as Map?) ?? {};
     final all = (periods['All'] as Map?) ?? {};
     final items = (all['stats'] as List?) ?? [];
-    int pair(String title, bool home) {
+    int? pair(String title, bool home) {
       final needle = title.toLowerCase();
       for (final item in items.whereType<Map>()) {
         final name = (item['title'] ?? '').toString().toLowerCase();
@@ -180,10 +181,10 @@ class FotMobService {
         if (values is List && values.length >= 2) {
           final value = values[home ? 0 : 1];
           if (value is num) return value.toInt();
-          return int.tryParse(value.toString().replaceAll('%', '').trim()) ?? 0;
+          return int.tryParse(value.toString().replaceAll('%', '').trim());
         }
       }
-      return 0;
+      return null;
     }
     return match.copyWith(
       homeShots: pair('total shots', true), awayShots: pair('total shots', false),
@@ -260,7 +261,7 @@ class GitHubFeedService {
 
   MatchData _decodeMatch(Map<String, dynamic> m) {
     final stats = (m['stats'] as Map?) ?? {};
-    int value(String key) => (stats[key] as num?)?.toInt() ?? 0;
+    int value(String key) => (stats[key] as num?)?.toInt() ?? -1;
     return MatchData(
       id: ((m['id'] as num?) ?? 0).toInt(),
       home: (m['home'] ?? 'Home').toString(),
@@ -315,7 +316,7 @@ class SofaScoreService {
       time:date==null?'--:--':date.hour.toString().padLeft(2,'0')+':'+date.minute.toString().padLeft(2,'0'),
       league:(tournament['name']??category['name']??'Football').toString(),status:live?'LIVE':finished?'FT':'NS',live:live,
       scoreHome:(hs['current'] as num?)?.toInt(),scoreAway:(as['current'] as num?)?.toInt(),
-      homeShots:0,awayShots:0,homeOn:0,awayOn:0,homeCorners:0,awayCorners:0,homeFouls:0,awayFouls:0,homeCards:0,awayCards:0,homeThrow:0,awayThrow:0,homeSaves:0,awaySaves:0);
+      homeShots:-1,awayShots:-1,homeOn:-1,awayOn:-1,homeCorners:-1,awayCorners:-1,homeFouls:-1,awayFouls:-1,homeCards:-1,awayCards:-1,homeThrow:-1,awayThrow:-1,homeSaves:-1,awaySaves:-1);
   }
   Future<MatchData> details(MatchData match) async {
     final response=await http.get(Uri.parse('$base/event/${match.id}/statistics'),headers:{'Accept':'application/json','User-Agent':'Mozilla/5.0'});
