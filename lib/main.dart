@@ -93,11 +93,20 @@ class MatchData {
 
 class ApiFootballService {
   static const base = 'https://v3.football.api-sports.io';
+  final bool rapidApi;
 
-  Map<String, String> get headers => {
-        'x-apisports-key': apiFootballKey,
-        'Accept': 'application/json',
-      };
+  const ApiFootballService({this.rapidApi = false});
+
+  Map<String, String> get headers => rapidApi
+      ? {
+          'x-rapidapi-key': rapidApiKey,
+          'x-rapidapi-host': 'v3.football.api-sports.io',
+          'Accept': 'application/json',
+        }
+      : {
+          'x-apisports-key': apiFootballKey,
+          'Accept': 'application/json',
+        };
 
   Future<List<MatchData>> today() async {
     final now = DateTime.now();
@@ -271,7 +280,8 @@ class _HomePageState extends State<HomePage> {
   bool loading = true;
   String? error;
   List<MatchData> matches = [];
-  final api = ApiFootballService();
+  final api = const ApiFootballService();
+  final rapidApi = const ApiFootballService(rapidApi: true);
   final footballData = FootballDataService();
 
   @override
@@ -281,31 +291,31 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _load() async {
-    if (apiFootballKey.isEmpty && footballDataKey.isEmpty) {
+    if (apiFootballKey.isEmpty && rapidApiKey.isEmpty && footballDataKey.isEmpty) {
       setState(() { loading = false; error = 'Nessuna API calcistica configurata'; });
       return;
     }
     setState(() { loading = true; error = null; });
+    final failures = <String>[];
     try {
-      List<MatchData> data;
+      List<MatchData>? data;
       if (apiFootballKey.isNotEmpty) {
-        try {
-          data = await api.today();
-        } catch (_) {
-          if (footballDataKey.isEmpty) rethrow;
-          data = await footballData.today();
-        }
-      } else {
-        data = await footballData.today();
+        try { data = await api.today(); } catch (e) { failures.add('API-Football: ' + e.toString().replaceFirst('Exception: ', '')); }
+      }
+      if ((data == null || data.isEmpty) && rapidApiKey.isNotEmpty) {
+        try { data = await rapidApi.today(); } catch (e) { failures.add('RapidAPI: ' + e.toString().replaceFirst('Exception: ', '')); }
+      }
+      if ((data == null || data.isEmpty) && footballDataKey.isNotEmpty) {
+        try { data = await footballData.today(); } catch (e) { failures.add('Football-Data: ' + e.toString().replaceFirst('Exception: ', '')); }
+      }
+      if (data == null) {
+        throw Exception(failures.join('\n\n'));
       }
       if (!mounted) return;
-      setState(() { matches = data; loading = false; });
+      setState(() { matches = data!; loading = false; });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = e.toString().replaceFirst('Exception: ', '');
-      });
+      setState(() { loading = false; error = e.toString().replaceFirst('Exception: ', ''); });
     }
   }
 
@@ -319,7 +329,13 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       try {
-        current = await api.details(m);
+        if (apiFootballKey.isNotEmpty) {
+          try { current = await api.details(m); } catch (_) {
+            if (rapidApiKey.isNotEmpty) current = await rapidApi.details(m);
+          }
+        } else if (rapidApiKey.isNotEmpty) {
+          current = await rapidApi.details(m);
+        }
         final index = matches.indexWhere((x) => x.id == m.id);
         if (index >= 0) setState(() => matches[index] = current);
       } catch (_) {
@@ -422,7 +438,7 @@ class _HomePageState extends State<HomePage> {
       return _state(
         error == 'Nessuna API calcistica configurata' ? 'Configurazione richiesta' : 'Dati non disponibili',
         error!,
-        setup: error == 'API key non configurata',
+        setup: error == 'Nessuna API calcistica configurata',
       );
     }
     if (matches.isEmpty) {
