@@ -19,6 +19,15 @@ jobs:
         run: rm -f test/widget_test.dart
       - run: flutter pub get
       - run: flutter analyze
+      - name: Verify API secret
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          if [ -z "$API_FOOTBALL_KEY" ]; then
+            echo "API_FOOTBALL_KEY is missing from GitHub repository secrets."
+            exit 1
+          fi
+          echo "API_FOOTBALL_KEY is configured."
       - name: Build release APK
         run: flutter build apk --release --dart-define=API_FOOTBALL_KEY="${{ secrets.API_FOOTBALL_KEY }}"
       - run: cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/MatchAIPro.apk
