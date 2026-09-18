@@ -57,7 +57,7 @@ class _HomePageState extends State<HomePage> {
                   child: OutlinedButton.icon(
                     onPressed: () => _open(m),
                     icon: const Icon(Icons.analytics_outlined),
-                    label: Text('\${m.home} — \${m.away}'),
+                    label: Text('${m.home} — ${m.away}'),
                   ),
                 )),
               ],
