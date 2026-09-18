@@ -567,30 +567,46 @@ class _HomePageState extends State<HomePage> {
       loading = true;
       error = null;
     });
+
     final feed = GitHubFeedService();
+
+    // Mostra subito il feed incorporato nell'APK. In questo modo l'app
+    // funziona anche quando il DNS/rete del telefono non riesce a risolvere
+    // i provider esterni.
+    List<MatchData>? bundledData;
     try {
-      final data = await feed.today();
+      bundledData = await feed.bundled();
       if (!mounted) return;
       setState(() {
-        matches = data;
+        matches = bundledData!;
         loading = false;
       });
+    } catch (_) {
+      // Se l'asset locale non è disponibile, lasciamo il tentativo remoto.
+    }
+
+    // Aggiorna con i dati remoti in background, senza mai cancellare un feed
+    // locale valido solo perché il telefono non ha accesso al DNS.
+    try {
+      final remoteData = await feed.today();
+      if (!mounted) return;
+      setState(() {
+        matches = remoteData;
+        loading = false;
+        error = null;
+      });
     } catch (remoteError) {
-      try {
-        final data = await feed.bundled();
-        if (!mounted) return;
+      if (!mounted) return;
+      if (matches.isEmpty) {
         setState(() {
-          matches = data;
           loading = false;
+          error = 'Nessun feed disponibile.\n\n' +
+              remoteError.toString().replaceFirst('Exception: ', '');
         });
-      } catch (localError) {
-        if (!mounted) return;
+      } else {
         setState(() {
           loading = false;
-          error = 'Feed remoto non raggiungibile. Feed locale non disponibile.\n\n' +
-              remoteError.toString().replaceFirst('Exception: ', '') +
-              '\n\n' +
-              localError.toString().replaceFirst('Exception: ', '');
+          error = null;
         });
       }
     }
@@ -598,11 +614,24 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _open(MatchData m) async {
     if (!mounted) return;
+
+    // Mostra immediatamente la partita dal feed locale/remoto. Le statistiche
+    // dettagliate vengono aggiornate solo se un provider risponde.
+    var detailed = m;
+    try {
+      detailed = await fotMob.details(m).timeout(const Duration(seconds: 5));
+    } catch (_) {
+      try {
+        detailed = await sofaScore.details(m).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF07110F),
-      builder: (_) => MatchDetail(match: m),
+      builder: (_) => MatchDetail(match: detailed),
     );
   }
 
