@@ -28,3 +28,12 @@ Il workflow passa la chiave alla build tramite `--dart-define`; la chiave non vi
 L'APK prodotto dal workflow si chiama **MatchAIPro.apk**.
 
 Nota: per una futura distribuzione pubblica conviene spostare le chiamate API dietro un backend/proxy, così la chiave non viene incorporata nell'APK.
+
+## API aggiuntive configurate nel workflow
+
+Sono previsti questi GitHub repository secrets:
+- `API_FOOTBALL_KEY` — provider API-Football principale.
+- `API_FOOTBALDATA_KEY` — fallback Football-Data.org per partite e risultati.
+- `APP_RAPIDAPI_KEY` — chiave dell'app RapidAPI, passata alla build per l'integrazione del provider RapidAPI selezionato.
+
+RapidAPI richiede anche l'host specifico dell'API (`X-RapidAPI-Host`), che non è standardizzato tra i diversi servizi RapidAPI. Per questo l'integrazione RapidAPI definitiva va legata all'API/host che hai scelto nel tuo account.
