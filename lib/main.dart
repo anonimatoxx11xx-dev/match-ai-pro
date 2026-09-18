@@ -614,18 +614,16 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _open(MatchData m) async {
     if (!mounted) return;
-
-    // Mostra immediatamente la partita dal feed locale/remoto. Le statistiche
-    // dettagliate vengono aggiornate solo se un provider risponde.
     var detailed = m;
     try {
-      detailed = await fotMob.details(m).timeout(const Duration(seconds: 5));
+      final candidate = await fotMob.details(m).timeout(const Duration(seconds: 4));
+      if (candidate.hasStats) detailed = candidate;
     } catch (_) {
       try {
-        detailed = await sofaScore.details(m).timeout(const Duration(seconds: 5));
+        final candidate = await sofaScore.details(m).timeout(const Duration(seconds: 4));
+        if (candidate.hasStats) detailed = candidate;
       } catch (_) {}
     }
-
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
@@ -726,177 +724,243 @@ class _HomePageState extends State<HomePage> {
 
   Widget _matches() {
     if (loading) return const Center(child: CircularProgressIndicator());
-    if (error != null) {
-      return _state(
-        'Dati non disponibili',
-        error!,
-        setup: false,
-      );
-    }
-    if (matches.isEmpty) {
-      return _state('Nessuna partita', 'Non risultano partite per oggi nel feed del provider.');
-    }
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _header('PARTITE DELLA GIORNATA', 'Dati reali aggiornati dal provider'),
-        const SizedBox(height: 8),
-        const Text(
-          'Dati e statistiche arrivano dal feed remoto aggiornato automaticamente.',
-          style: TextStyle(color: Colors.white54),
-        ),
-        const SizedBox(height: 14),
-        ...matches.map(
-          (m) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: InkWell(onTap: () => _open(m), child: _card(m)),
-          ),
-        ),
-      ],
+    if (error != null) return _state('Dati non disponibili', error!);
+    if (matches.isEmpty) return _state('Nessuna partita', 'Non risultano partite disponibili oggi.');
+
+    final live = matches.where((m) => m.live).toList();
+    final upcoming = matches.where((m) => !m.live && m.status == 'NS').toList();
+    final finished = matches.where((m) => m.status == 'FT').toList();
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+        children: [
+          _header('PARTITE DELLA GIORNATA', '${matches.length} partite • dati reali FotMob'),
+          const SizedBox(height: 14),
+          if (live.isNotEmpty) ...[
+            _sectionTitle('● LIVE', live.length),
+            ...live.map((m) => _matchTile(m)),
+          ],
+          if (upcoming.isNotEmpty) ...[
+            _sectionTitle('PROSSIME', upcoming.length),
+            ...upcoming.map((m) => _matchTile(m)),
+          ],
+          if (finished.isNotEmpty) ...[
+            _sectionTitle('TERMINATE', finished.length),
+            ...finished.map((m) => _matchTile(m)),
+          ],
+        ],
+      ),
     );
   }
 
-  Widget _proposals() => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _header('PROPOSTE IA', 'Lettura automatica dei dati reali disponibili'),
-          const SizedBox(height: 16),
-          if (matches.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: Text('Carica prima le partite reali dalla scheda Giornata.'),
-              ),
-            )
-          else
-            ...matches.take(20).map(
-              (m) => Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _sectionTitle(String title, int count) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 8, 4, 9),
+        child: Row(
+          children: [
+            Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF79E2C1))),
+            const Spacer(),
+            Text('$count', style: const TextStyle(color: Colors.white38, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+
+  Widget _matchTile(MatchData m) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Material(
+          color: const Color(0xFF111A18),
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => _open(m),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 13, 16, 14),
+              child: Column(
+                children: [
+                  Row(
                     children: [
-                      Text(m.home + ' — ' + m.away, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 10),
-                      Text(_analysis(m), style: const TextStyle(color: Colors.white70, height: 1.4)),
-                      if (m.hasStats) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
+                      Expanded(child: Text(m.league.toUpperCase(), style: const TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.w800))),
+                      if (m.live) const _Live() else Text(m.status == 'NS' ? m.time : 'FINALE', style: const TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.w800)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: Text(m.home, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+                      SizedBox(
+                        width: 72,
+                        child: Column(
                           children: [
-                            _tag('Tiri ' + (m.homeShots + m.awayShots).toString()),
-                            _tag('Corner ' + (m.homeCorners + m.awayCorners).toString()),
-                            _tag('Cartellini ' + (m.homeCards + m.awayCards).toString()),
+                            Text(m.scoreHome != null && m.scoreAway != null ? '${m.scoreHome} - ${m.scoreAway}' : 'VS', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                            if (m.live) const Text('IN CORSO', style: TextStyle(fontSize: 9, color: Color(0xFFFF6B6B), fontWeight: FontWeight.w900)),
                           ],
                         ),
-                      ],
+                      ),
+                      Expanded(child: Text(m.away, textAlign: TextAlign.right, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
                     ],
+                  ),
+                  if (m.hasStats) ...[
+                    const SizedBox(height: 13),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(color: const Color(0xFF0A2921), borderRadius: BorderRadius.circular(12)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _miniStat('TIRI', m.homeShots, m.awayShots),
+                          _miniStat('PORTA', m.homeOn, m.awayOn),
+                          _miniStat('CORNER', m.homeCorners, m.awayCorners),
+                          _miniStat('FALLI', m.homeFouls, m.awayFouls),
+                          _miniStat('CARTE', m.homeCards, m.awayCards),
+                        ],
+                      ),
+                    ),
+                  ] else
+                    const Padding(
+                      padding: EdgeInsets.only(top: 10),
+                      child: Align(alignment: Alignment.centerLeft, child: Text('Statistiche in attesa', style: TextStyle(fontSize: 11, color: Colors.white38))),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+  Widget _miniStat(String label, int a, int b) => Column(
+        children: [
+          Text('$a - $b', style: const TextStyle(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 2),
+          Text(label, style: const TextStyle(fontSize: 8, color: Colors.white45)),
+        ],
+      );
+
+  Widget _proposals() => ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+        children: [
+          _header('PROPOSTE IA', 'Analisi solo su statistiche realmente disponibili'),
+          const SizedBox(height: 14),
+          ...matches.where((m) => m.hasStats).take(20).map(
+            (m) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Material(
+                color: const Color(0xFF111A18),
+                borderRadius: BorderRadius.circular(18),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => _open(m),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(m.league.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white45, fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 7),
+                        Text('${m.home} — ${m.away}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        Text(_analysis(m), style: const TextStyle(color: Colors.white70, height: 1.35)),
+                        const SizedBox(height: 12),
+                        Wrap(spacing: 7, runSpacing: 7, children: [
+                          _tag('Tiri ${m.homeShots + m.awayShots}'),
+                          _tag('Corner ${m.homeCorners + m.awayCorners}'),
+                          _tag('Carte ${m.homeCards + m.awayCards}'),
+                        ]),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-        ],
-      );
-
-  Widget _center() => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _header('AI CENTER', 'Confronta qualsiasi partita reale'),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.psychology_alt, size: 42, color: Color(0xFF00C896)),
-                  const SizedBox(height: 10),
-                  const Text('Analisi interattiva', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Apri una partita per caricare statistiche reali come tiri, corner, falli, cartellini e parate.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 16),
-                  ...matches.take(30).map(
-                    (m) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: OutlinedButton.icon(
-                        onPressed: () => _open(m),
-                        icon: const Icon(Icons.analytics_outlined),
-                        label: Text(m.home + ' — ' + m.away),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
+          if (!matches.any((m) => m.hasStats))
+            _stateInline('Nessuna analisi disponibile', 'Aspettiamo statistiche reali dal provider.'),
         ],
       );
 
-  Widget _card(MatchData m) => Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+  Widget _stateInline(String title, String message) => Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              Row(
-                children: [
-                  Expanded(child: Text(m.league, style: const TextStyle(color: Colors.white54))),
-                  if (m.live)
-                    const _Live()
-                  else
-                    Text(
-                      m.scoreHome != null ? m.scoreHome.toString() + ' : ' + m.scoreAway.toString() : m.time,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(child: Text(m.home, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
-                  Column(
-                    children: [
-                      Text(
-                        m.scoreHome != null && m.scoreAway != null
-                            ? m.scoreHome.toString() + ' - ' + m.scoreAway.toString()
-                            : 'VS',
-                        style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white54),
-                      ),
-                      if (m.live)
-                        Text(m.status, style: const TextStyle(fontSize: 10, color: Color(0xFF00C896))),
-                    ],
-                  ),
-                  Expanded(child: Text(m.away, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (m.hasStats)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _stat('Tiri', m.homeShots, m.awayShots, Icons.sports_soccer),
-                    _stat('Corner', m.homeCorners, m.awayCorners, Icons.flag),
-                    _stat('Cartellini', m.homeCards, m.awayCards, Icons.style),
-                    _stat('Falli', m.homeFouls, m.awayFouls, Icons.front_hand),
-                  ],
-                )
-              else
-                const Text('Statistiche: apri la partita', style: TextStyle(color: Colors.white38, fontSize: 12)),
+              const Icon(Icons.analytics_outlined, size: 42, color: Color(0xFF00C896)),
+              const SizedBox(height: 10),
+              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60)),
             ],
           ),
         ),
       );
 
-  Widget _stat(String l, int a, int b, IconData i) => Column(
+  Widget _center() => ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
-          Icon(i, size: 18, color: Colors.white54),
-          Text(a.toString() + ':' + b.toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
-          Text(l, style: const TextStyle(fontSize: 9, color: Colors.white38)),
+          _header('AI CENTER', 'Apri una partita e confronta i dati reali'),
+          const SizedBox(height: 14),
+          Material(
+            color: const Color(0xFF111A18),
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(11),
+                        decoration: BoxDecoration(color: const Color(0xFF0A2921), borderRadius: BorderRadius.circular(14)),
+                        child: const Icon(Icons.psychology_alt, color: Color(0xFF00C896), size: 28),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Analisi interattiva', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                            SizedBox(height: 3),
+                            Text('Statistiche ricevute dal feed', style: TextStyle(color: Colors.white54)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  ...matches.take(30).map(
+                    (m) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: const Color(0xFF18211F),
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => _open(m),
+                          child: Padding(
+                            padding: const EdgeInsets.all(13),
+                            child: Row(
+                              children: [
+                                Icon(m.hasStats ? Icons.analytics_outlined : Icons.schedule, color: const Color(0xFF79E2C1), size: 20),
+                                const SizedBox(width: 11),
+                                Expanded(child: Text('${m.home} — ${m.away}', style: const TextStyle(fontWeight: FontWeight.w700))),
+                                const Icon(Icons.chevron_right, color: Colors.white38),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       );
+
+  Widget _card(MatchData m) => _matchTile(m);
+
+  Widget _stat(String l, int a, int b, IconData i) => _miniStat(l, a, b);
 
   Widget _tag(String s) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
