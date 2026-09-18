@@ -1,0 +1,200 @@
+name: Update football feed
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "data/**"
+
+permissions:
+  contents: write
+
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch SofaScore feed
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import urllib.request
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          tz = ZoneInfo("Europe/Zurich")
+          date = datetime.now(tz).date().isoformat()
+
+          bases = [
+              "https://www.sofascore.com/api/v1",
+              "https://api.sofascore.com/api/v1",
+          ]
+
+          payload = None
+          used_base = None
+          last_error = None
+
+          headers = {
+              "User-Agent": "MatchAIProFeed/1.0",
+              "Accept": "application/json",
+          }
+
+          for base in bases:
+              url = f"{base}/sport/football/scheduled-events/{date}"
+              try:
+                  req = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      data = r.read()
+                  candidate = json.loads(data.decode("utf-8"))
+                  if isinstance(candidate.get("events"), list):
+                      payload = candidate
+                      used_base = base
+                      break
+              except Exception as exc:
+                  last_error = exc
+
+          if payload is None:
+              raise SystemExit(f"SofaScore feed failed: {last_error}")
+
+          def number(value):
+              if isinstance(value, (int, float)):
+                  return int(value)
+              if isinstance(value, str):
+                  try:
+                      return int(value.replace("%", "").strip())
+                  except ValueError:
+                      return None
+              return None
+
+          def pick(stats, names):
+              for name in names:
+                  value = stats.get(name)
+                  if value is not None:
+                      return value
+              return 0
+
+          def fetch_stats(event_id):
+              url = f"{used_base}/event/{event_id}/statistics"
+              try:
+                  req = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      body = json.loads(r.read().decode("utf-8"))
+                  periods = body.get("statistics") or []
+                  block = next((p for p in periods if p.get("period") == "ALL"), None)
+                  if block is None and periods:
+                      block = periods[0]
+                  if not isinstance(block, dict):
+                      return {}
+                  home, away = {}, {}
+                  for group in block.get("groups") or []:
+                      for item in group.get("statisticsItems") or []:
+                          name = str(item.get("name") or "").lower()
+                          h = number(item.get("home"))
+                          a = number(item.get("away"))
+                          if h is not None:
+                              home[name] = h
+                          if a is not None:
+                              away[name] = a
+                  return {
+                      "homeShots": pick(home, ["total shots", "shots"]),
+                      "awayShots": pick(away, ["total shots", "shots"]),
+                      "homeOn": pick(home, ["shots on target", "shots on goal"]),
+                      "awayOn": pick(away, ["shots on target", "shots on goal"]),
+                      "homeCorners": pick(home, ["corner kicks", "corners"]),
+                      "awayCorners": pick(away, ["corner kicks", "corners"]),
+                      "homeFouls": pick(home, ["fouls"]),
+                      "awayFouls": pick(away, ["fouls"]),
+                      "homeCards": pick(home, ["yellow cards"]) + pick(home, ["red cards"]),
+                      "awayCards": pick(away, ["yellow cards"]) + pick(away, ["red cards"]),
+                      "homeThrow": pick(home, ["throw-ins", "throw ins"]),
+                      "awayThrow": pick(away, ["throw-ins", "throw ins"]),
+                      "homeSaves": pick(home, ["goalkeeper saves", "saves"]),
+                      "awaySaves": pick(away, ["goalkeeper saves", "saves"]),
+                  }
+              except Exception:
+                  return {}
+
+          events = [
+              e for e in (payload.get("events") or [])
+              if isinstance(e, dict)
+              and isinstance(e.get("homeTeam"), dict)
+              and isinstance(e.get("awayTeam"), dict)
+          ]
+
+          type_map_live = {"inprogress", "halftime", "extra_time", "penalties"}
+
+          records = []
+          for e in events[:150]:
+              home = e.get("homeTeam") or {}
+              away = e.get("awayTeam") or {}
+              tournament = e.get("tournament") or {}
+              category = tournament.get("category") or {}
+              status = e.get("status") or {}
+              kind = str(status.get("type") or "notstarted")
+              ts = e.get("startTimestamp")
+              dt = datetime.fromtimestamp(int(ts), tz).strftime("%H:%M") if ts else "--:--"
+              hs = e.get("homeScore") or {}
+              aw = e.get("awayScore") or {}
+              score_home = hs.get("current")
+              score_away = aw.get("current")
+
+              records.append({
+                  "id": int(e.get("id") or 0),
+                  "home": str(home.get("name") or "Home"),
+                  "away": str(away.get("name") or "Away"),
+                  "time": dt,
+                  "timestamp": int(ts) if ts else 0,
+                  "league": str(tournament.get("name") or category.get("name") or "Football"),
+                  "status": "LIVE" if kind in type_map_live else ("FT" if kind == "finished" else kind.upper()),
+                  "live": kind in type_map_live,
+                  "scoreHome": int(score_home) if isinstance(score_home, (int, float)) else None,
+                  "scoreAway": int(score_away) if isinstance(score_away, (int, float)) else None,
+                  "stats": {},
+              })
+
+          records.sort(key=lambda x: (not x["live"], x["timestamp"]))
+
+          need_stats = [r for r in records if r["live"] or r["status"] == "FT"]
+          need_stats = need_stats[:100]
+
+          with ThreadPoolExecutor(max_workers=10) as pool:
+              futures = {pool.submit(fetch_stats, r["id"]): r for r in need_stats}
+              for future in as_completed(futures):
+                  futures[future]["stats"] = future.result()
+
+          out = {
+              "source": "SofaScore",
+              "date": date,
+              "updatedAt": datetime.now(tz).isoformat(),
+              "matches": records,
+          }
+
+          os.makedirs("data", exist_ok=True)
+          path = f"data/{date}.json"
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+
+          with open("data/latest.json", "w", encoding="utf-8") as f:
+              json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+
+          print(f"Feed ready: {path} with {len(records)} matches; stats attempted for {len(need_stats)} matches.")
+          PY
+
+      - name: Publish feed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No feed changes."
+            exit 0
+          fi
+          git commit -m "data: update football feed"
+          git push
