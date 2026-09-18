@@ -832,7 +832,8 @@ class _HomePageState extends State<HomePage> {
 
   Widget _miniStat(String label, int a, int b) => Column(
         children: [
-          Text('$a - $b', style: const TextStyle(fontWeight: FontWeight.w900)),
+          Text('${a < 0 ? '—' : a} - ${b < 0 ? '—' : b}',
+              style: const TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
           Text(label, style: const TextStyle(fontSize: 8, color: Colors.white54)),
         ],
@@ -1162,7 +1163,7 @@ class MatchDetail extends StatelessWidget {
             ),
             SizedBox(
               width: 46,
-              child: Text(a.toString(),
+              child: Text(a < 0 ? '—' : a.toString(),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w900)),
@@ -1176,7 +1177,7 @@ class MatchDetail extends StatelessWidget {
             ),
             SizedBox(
               width: 46,
-              child: Text(b.toString(),
+              child: Text(b < 0 ? '—' : b.toString(),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w900)),
