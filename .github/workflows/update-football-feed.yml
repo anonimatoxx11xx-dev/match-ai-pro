@@ -336,6 +336,13 @@ jobs:
                   away_pct = str(percent.get("away") or "").strip()
                   gh = str(goals.get("home") or "").strip()
                   ga = str(goals.get("away") or "").strip()
+                  try:
+                      if gh and float(gh) < 0:
+                          gh = ""
+                      if ga and float(ga) < 0:
+                          ga = ""
+                  except Exception:
+                      pass
 
                   proposals_out = []
                   if advice:
