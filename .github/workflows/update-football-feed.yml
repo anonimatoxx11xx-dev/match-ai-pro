@@ -238,7 +238,9 @@ jobs:
               raise SystemExit("FotMob returned a valid response but zero match records were found")
           records.sort(key=lambda x: (not x["live"], x["timestamp"], x["home"]))
 
-          # Tentiamo le statistiche su tutte le partite dei top campionati.\n          # Per le gare non ancora iniziate il provider puo restituire dati vuoti.\n          need_stats = records[:180]
+          # Tentiamo le statistiche su tutte le partite dei top campionati.
+          # Per le gare non ancora iniziate il provider puo restituire dati vuoti.
+          need_stats = records[:180]
           with ThreadPoolExecutor(max_workers=8) as pool:
               futures = {pool.submit(fetch_stats, r["id"]): r for r in need_stats}
               for future in as_completed(futures):
