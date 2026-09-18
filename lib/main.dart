@@ -155,7 +155,7 @@ class FotMobService {
 
   Future<MatchData> details(MatchData match) async {
     final response = await http.get(
-      Uri.parse('$base/matchDetails?matchId=${match.id}'),
+      Uri.parse('$base/data/matchDetails?matchId=${match.id}'),
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0',
