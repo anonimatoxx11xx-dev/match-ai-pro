@@ -64,16 +64,36 @@ jobs:
                       return None
               return None
 
+          def iter_stat_entries(node):
+              """
+              FotMob groups match stats in nested sections such as:
+              Top stats -> stats -> [ {title, stats:[home,away]}, ... ].
+              Walk every nested list/dict so the parser keeps working if
+              FotMob adds another grouping layer.
+              """
+              if isinstance(node, dict):
+                  title = node.get("title")
+                  values = node.get("stats")
+                  if title is not None and isinstance(values, list) and len(values) >= 2:
+                      yield node
+                  for value in node.values():
+                      yield from iter_stat_entries(value)
+              elif isinstance(node, list):
+                  for value in node:
+                      yield from iter_stat_entries(value)
+
           def pick(block, titles):
               wanted = [x.lower() for x in titles]
-              for item in block:
-                  title = str(item.get("title") or "").lower()
-                  if any(w in title for w in wanted):
-                      stats = item.get("stats")
-                      if isinstance(stats, list) and len(stats) >= 2:
-                          h, a = as_int(stats[0]), as_int(stats[1])
-                          if h is not None and a is not None:
-                              return h, a
+              for item in iter_stat_entries(block):
+                  title = str(item.get("title") or "").strip().lower()
+                  if not any(w == title or w in title for w in wanted):
+                      continue
+                  values = item.get("stats")
+                  if not isinstance(values, list) or len(values) < 2:
+                      continue
+                  h, a = as_int(values[0]), as_int(values[1])
+                  if h is not None and a is not None:
+                      return h, a
               return 0, 0
 
           def fetch_stats(match_id):
