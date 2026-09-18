@@ -25,6 +25,7 @@ jobs:
       - name: Fetch SofaScore football feed
         env:
           APP_RAPIDAPI_KEY: ${{ secrets.APP_RAPIDAPI_KEY }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         shell: bash
         run: |
           python3 -m pip install -q curl_cffi
@@ -112,6 +113,7 @@ jobs:
                   "stats": {},
                   "proposals": [],
                   "proposalScore": 0,
+                  "preMatchStats": [],
               }
 
           def load_events():
@@ -255,6 +257,131 @@ jobs:
               except Exception:
                   return None
 
+          def normalize_team_name(value):
+              value = str(value or "").lower()
+              replacements = {"ä":"a","ö":"o","ü":"u","ß":"ss","é":"e","è":"e","á":"a","à":"a","í":"i","ì":"i","ó":"o","ò":"o","ú":"u","ù":"u"}
+              for old, new in replacements.items():
+                  value = value.replace(old, new)
+              return re.sub(r"[^a-z0-9]", "", value)
+
+          def api_football_get(path, params):
+              key = os.environ.get("API_FOOTBALL_KEY", "").strip()
+              if not key:
+                  return None
+              try:
+                  response = requests.get(
+                      "https://v3.football.api-sports.io" + path,
+                      headers={"x-apisports-key": key, "Accept": "application/json"},
+                      timeout=18,
+                  )
+                  response.raise_for_status()
+                  payload = response.json()
+                  if payload.get("errors"):
+                      print("API-Football error:", payload.get("errors"))
+                      return None
+                  return payload
+              except Exception as exc:
+                  print("API-Football request failed:", path, exc)
+                  return None
+
+          def enrich_with_api_football(records):
+              key = os.environ.get("API_FOOTBALL_KEY", "").strip()
+              if not key:
+                  print("API_FOOTBALL_KEY not configured; pre-match enrichment skipped")
+                  return
+
+              candidates = [
+                  x for x in records
+                  if x.get("status") == "NS" and not x.get("proposals") and (x.get("proposalScore") or 0) == 0
+              ][:20]
+              if not candidates:
+                  return
+
+              payload = api_football_get(
+                  "/fixtures",
+                  {"date": ISO_DATE, "timezone": "Europe/Zurich"},
+              )
+              fixtures = (payload or {}).get("response") or []
+              fixture_map = {}
+              for fixture in fixtures:
+                  teams = fixture.get("teams") or {}
+                  home = normalize_team_name((teams.get("home") or {}).get("name"))
+                  away = normalize_team_name((teams.get("away") or {}).get("name"))
+                  if home and away:
+                      fixture_map[(home, away)] = fixture
+
+              def enrich_one(item):
+                  key_pair = (normalize_team_name(item.get("home")), normalize_team_name(item.get("away")))
+                  fixture = fixture_map.get(key_pair)
+                  if not fixture:
+                      return item, False
+                  fixture_id = ((fixture.get("fixture") or {}).get("id"))
+                  if not fixture_id:
+                      return item, False
+                  prediction = api_football_get("/predictions", {"fixture": fixture_id})
+                  row = ((prediction or {}).get("response") or [None])[0]
+                  if not isinstance(row, dict):
+                      return item, False
+                  pred = row.get("predictions") or {}
+                  percent = pred.get("percent") or {}
+                  winner = pred.get("winner") or {}
+                  goals = pred.get("goals") or {}
+                  advice = str(pred.get("advice") or "").strip()
+                  under_over = str(pred.get("under_over") or "").strip()
+
+                  home_pct = str(percent.get("home") or "").strip()
+                  draw_pct = str(percent.get("draw") or "").strip()
+                  away_pct = str(percent.get("away") or "").strip()
+                  gh = str(goals.get("home") or "").strip()
+                  ga = str(goals.get("away") or "").strip()
+
+                  proposals_out = []
+                  if advice:
+                      proposals_out.append(advice)
+                  elif winner.get("name"):
+                      proposals_out.append("1X • " + str(winner.get("name")))
+                  if under_over:
+                      proposals_out.append(under_over + " • previsione pre-match")
+                  elif gh and ga:
+                      try:
+                          total = float(gh) + float(ga)
+                          proposals_out.append(("Over 1.5" if total >= 1.8 else "Under 3.5") + " • gol attesi " + gh + "–" + ga)
+                      except Exception:
+                          pass
+
+                  comparison = row.get("comparison") or {}
+                  h2h = row.get("h2h") or {}
+                  if not proposals_out and comparison:
+                      proposals_out.append("1X2 • confronto statistico disponibile")
+                  if not proposals_out:
+                      return item, False
+
+                  score = 50
+                  for value in (home_pct, draw_pct, away_pct):
+                      try:
+                          score += int(float(value.replace("%", "")) / 20)
+                      except Exception:
+                          pass
+                  item["proposals"] = proposals_out[:3]
+                  item["proposalScore"] = max(50, min(88, score))
+                  pre = []
+                  if home_pct or draw_pct or away_pct:
+                      pre.append("1: " + (home_pct or "—") + "  •  X: " + (draw_pct or "—") + "  •  2: " + (away_pct or "—"))
+                  if gh or ga:
+                      pre.append("Gol attesi: " + (gh or "—") + " – " + (ga or "—"))
+                  if under_over:
+                      pre.append("Linea gol: " + under_over)
+                  item["preMatchStats"] = pre[:3]
+                  return item, True
+
+              with ThreadPoolExecutor(max_workers=6) as pool:
+                  futures = {pool.submit(enrich_one, item): item for item in candidates}
+                  for future in as_completed(futures):
+                      item, ok = future.result()
+                      if not ok:
+                          # -1 marks this match as attempted so the 100/day quota is not burned repeatedly.
+                          item["proposalScore"] = -1
+
           def form_points(items):
               return sum({"W": 3, "D": 1, "L": 0}.get(str(x).upper(), 0) for x in (items or [])[-5:])
 
@@ -349,6 +476,7 @@ jobs:
               cached_item.setdefault("stats", {})
               cached_item.setdefault("proposals", [])
               cached_item.setdefault("proposalScore", 0)
+              cached_item.setdefault("preMatchStats", [])
               normalized_records.append(cached_item)
           records = normalized_records
 
@@ -405,6 +533,11 @@ jobs:
               away_recent = recent_map.get(item["awayTeamId"])
               if form_data or home_recent or away_recent:
                   proposals(item, form_data, home_recent, away_recent)
+
+          # When the SofaScore runner is blocked and we are using the verified cache,
+          # use API-Football only for pre-match enrichment. The result is persisted in
+          # latest.json, so subsequent 15-minute runs do not repeatedly spend quota.
+          enrich_with_api_football(records)
 
           output = {
               "source": "SofaScore",
