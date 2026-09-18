@@ -832,7 +832,7 @@ class _HomePageState extends State<HomePage> {
         children: [
           Text('$a - $b', style: const TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
-          Text(label, style: const TextStyle(fontSize: 8, color: Colors.white45)),
+          Text(label, style: const TextStyle(fontSize: 8, color: Colors.white54)),
         ],
       );
 
@@ -855,7 +855,7 @@ class _HomePageState extends State<HomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(m.league.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white45, fontWeight: FontWeight.w800)),
+                        Text(m.league.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.w800)),
                         const SizedBox(height: 7),
                         Text('${m.home} — ${m.away}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
                         const SizedBox(height: 8),
@@ -1013,7 +1013,7 @@ class MatchDetail extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         fontSize: 11,
-                        color: Colors.white45,
+                        color: Colors.white54,
                         fontWeight: FontWeight.w900)),
                 const SizedBox(height: 12),
                 Row(
@@ -1062,20 +1062,20 @@ class MatchDetail extends StatelessWidget {
                         child: Text('CASA',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                color: Colors.white45,
+                                color: Colors.white54,
                                 fontWeight: FontWeight.w800)),
                       ),
                       SizedBox(width: 110, child: Text('STATISTICA',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                              color: Colors.white45,
+                              color: Colors.white54,
                               fontSize: 10,
                               fontWeight: FontWeight.w800))),
                       Expanded(
                         child: Text('TRASFERTA',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                color: Colors.white45,
+                                color: Colors.white54,
                                 fontWeight: FontWeight.w800)),
                       ),
                     ],
