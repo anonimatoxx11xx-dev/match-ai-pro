@@ -104,7 +104,7 @@ jobs:
 
           def load_events():
               urls = [
-                  f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{ISO_DATE}",
+                  f"https://api.sofascore.app/api/v1/sport/football/scheduled-events/{ISO_DATE}",
                   f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{ISO_DATE}",
               ]
               last_error = None
@@ -142,7 +142,7 @@ jobs:
           def match_stats(event_id):
               try:
                   data = get_json(
-                      "https://api.sofascore.com/api/v1/event/" + str(event_id) + "/statistics",
+                      "https://api.sofascore.app/api/v1/event/" + str(event_id) + "/statistics",
                       18,
                   )
                   period = next(
@@ -181,7 +181,7 @@ jobs:
                   return None
               try:
                   data = get_json(
-                      "https://api.sofascore.com/api/v1/team/" + str(team_id) + "/events/last/0",
+                      "https://api.sofascore.app/api/v1/team/" + str(team_id) + "/events/last/0",
                       15,
                   )
                   games = 0
@@ -302,7 +302,7 @@ jobs:
               def get_form(item):
                   try:
                       return get_json(
-                          "https://api.sofascore.com/api/v1/event/" + str(item["id"]) + "/pregame-form",
+                          "https://api.sofascore.app/api/v1/event/" + str(item["id"]) + "/pregame-form",
                           12,
                       )
                   except Exception:
