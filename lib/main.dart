@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_interpolation_to_compose_strings
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 const apiFootballKey = String.fromEnvironment('API_FOOTBALL_KEY');
@@ -239,6 +240,22 @@ class GitHubFeedService {
 
     throw Exception('Feed GitHub non raggiungibile' +
         (lastError == null ? '' : ': ' + lastError.toString()));
+  }
+
+  Future<List<MatchData>> bundled() async {
+    final body = await rootBundle.loadString('data/latest.json');
+    final json = jsonDecode(body) as Map<String, dynamic>;
+    final raw = (json['matches'] as List?) ?? [];
+    final result = raw
+        .whereType<Map<String, dynamic>>()
+        .map(_decodeMatch)
+        .toList();
+    if (result.isEmpty) throw Exception('Feed locale vuoto');
+    result.sort((a, b) {
+      if (a.live != b.live) return a.live ? -1 : 1;
+      return a.time.compareTo(b.time);
+    });
+    return result.take(150).toList();
   }
 
   MatchData _decodeMatch(Map<String, dynamic> m) {
@@ -550,19 +567,32 @@ class _HomePageState extends State<HomePage> {
       loading = true;
       error = null;
     });
+    final feed = GitHubFeedService();
     try {
-      final data = await GitHubFeedService().today();
+      final data = await feed.today();
       if (!mounted) return;
       setState(() {
         matches = data;
         loading = false;
       });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = e.toString().replaceFirst('Exception: ', '');
-      });
+    } catch (remoteError) {
+      try {
+        final data = await feed.bundled();
+        if (!mounted) return;
+        setState(() {
+          matches = data;
+          loading = false;
+        });
+      } catch (localError) {
+        if (!mounted) return;
+        setState(() {
+          loading = false;
+          error = 'Feed remoto non raggiungibile. Feed locale non disponibile.\n\n' +
+              remoteError.toString().replaceFirst('Exception: ', '') +
+              '\n\n' +
+              localError.toString().replaceFirst('Exception: ', '');
+        });
+      }
     }
   }
 
