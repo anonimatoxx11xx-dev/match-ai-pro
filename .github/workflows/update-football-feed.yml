@@ -304,18 +304,29 @@ jobs:
               record_item["proposals"] = items[:3]
               record_item["proposalScore"] = max(50, min(88, index))
 
-          events, source_url = load_events()
-          records = []
-          seen = set()
+          try:
+              events, source_url = load_events()
+              records = []
+              seen = set()
 
-          for event in events:
-              if not isinstance(event, dict):
-                  continue
-              item = record(event)
-              if item["id"] <= 0 or item["id"] in seen:
-                  continue
-              seen.add(item["id"])
-              records.append(item)
+              for event in events:
+                  if not isinstance(event, dict):
+                      continue
+                  item = record(event)
+                  if item["id"] <= 0 or item["id"] in seen:
+                      continue
+                  seen.add(item["id"])
+                  records.append(item)
+          except Exception as sofa_error:
+              print("SofaScore unavailable, keeping last verified SofaScore feed:", sofa_error)
+              try:
+                  with open("data/latest.json", "r", encoding="utf-8") as f:
+                      cached = json.load(f)
+                  records = cached.get("matches") or []
+                  source_url = cached.get("sourceUrl") or "https://api.sofascore.com/api/v1"
+              except Exception:
+                  records = []
+                  source_url = "https://api.sofascore.com/api/v1"
 
           records.sort(
               key=lambda x: (not x["live"], -x["priority"], x["timestamp"], x["home"])
