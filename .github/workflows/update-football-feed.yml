@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch SofaScore feed
+      - name: Fetch FotMob feed
         shell: bash
         run: |
           python3 <<'PY'
@@ -30,161 +30,142 @@ jobs:
           from zoneinfo import ZoneInfo
 
           tz = ZoneInfo("Europe/Zurich")
-          date = datetime.now(tz).date().isoformat()
+          now = datetime.now(tz)
+          date = now.strftime("%Y%m%d")
+          iso_date = now.date().isoformat()
 
-          bases = [
-              "https://www.sofascore.com/api/v1",
-              "https://api.sofascore.com/api/v1",
-          ]
-
-          payload = None
-          used_base = None
-          last_error = None
-
+          url = f"https://www.fotmob.com/api/matches?date={date}"
           headers = {
-              "User-Agent": "MatchAIProFeed/1.0",
-              "Accept": "application/json",
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0",
+              "Accept": "application/json,text/plain,*/*",
+              "Accept-Language": "en-US,en;q=0.9",
           }
 
-          for base in bases:
-              url = f"{base}/sport/football/scheduled-events/{date}"
-              try:
-                  req = urllib.request.Request(url, headers=headers)
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      data = r.read()
-                  candidate = json.loads(data.decode("utf-8"))
-                  if isinstance(candidate.get("events"), list):
-                      payload = candidate
-                      used_base = base
-                      break
-              except Exception as exc:
-                  last_error = exc
+          try:
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  payload = json.loads(r.read().decode("utf-8"))
+          except Exception as exc:
+              raise SystemExit(f"FotMob feed failed: {exc}")
 
-          if payload is None:
-              raise SystemExit(f"SofaScore feed failed: {last_error}")
-
-          def number(value):
+          def as_int(value):
+              if isinstance(value, bool):
+                  return None
               if isinstance(value, (int, float)):
                   return int(value)
               if isinstance(value, str):
                   try:
-                      return int(value.replace("%", "").strip())
+                      return int(float(value.replace("%", "").strip()))
                   except ValueError:
                       return None
               return None
 
-          def pick(stats, names):
-              for name in names:
-                  value = stats.get(name)
-                  if value is not None:
-                      return value
-              return 0
+          def pick(block, titles):
+              wanted = [x.lower() for x in titles]
+              for item in block:
+                  title = str(item.get("title") or "").lower()
+                  if any(w in title for w in wanted):
+                      stats = item.get("stats")
+                      if isinstance(stats, list) and len(stats) >= 2:
+                          h, a = as_int(stats[0]), as_int(stats[1])
+                          if h is not None and a is not None:
+                              return h, a
+              return 0, 0
 
-          def fetch_stats(event_id):
-              url = f"{used_base}/event/{event_id}/statistics"
+          def fetch_stats(match_id):
+              detail_url = f"https://www.fotmob.com/api/matchDetails?matchId={match_id}"
               try:
-                  req = urllib.request.Request(url, headers=headers)
+                  req = urllib.request.Request(detail_url, headers=headers)
                   with urllib.request.urlopen(req, timeout=20) as r:
                       body = json.loads(r.read().decode("utf-8"))
-                  periods = body.get("statistics") or []
-                  block = next((p for p in periods if p.get("period") == "ALL"), None)
-                  if block is None and periods:
-                      block = periods[0]
-                  if not isinstance(block, dict):
+                  content = body.get("content") or {}
+                  periods = content.get("stats", {}).get("Periods", {})
+                  all_stats = periods.get("All", {}) if isinstance(periods, dict) else {}
+                  items = all_stats.get("stats", []) if isinstance(all_stats, dict) else []
+                  if not isinstance(items, list):
                       return {}
-                  home, away = {}, {}
-                  for group in block.get("groups") or []:
-                      for item in group.get("statisticsItems") or []:
-                          name = str(item.get("name") or "").lower()
-                          h = number(item.get("home"))
-                          a = number(item.get("away"))
-                          if h is not None:
-                              home[name] = h
-                          if a is not None:
-                              away[name] = a
+                  shots = pick(items, ["total shots", "shots"])
+                  on = pick(items, ["shots on target", "shots on goal"])
+                  corners = pick(items, ["corners"])
+                  fouls = pick(items, ["fouls"])
+                  yellow = pick(items, ["yellow cards"])
+                  red = pick(items, ["red cards"])
+                  throwins = pick(items, ["throw-ins", "throw ins"])
+                  saves = pick(items, ["saves", "goalkeeper saves"])
                   return {
-                      "homeShots": pick(home, ["total shots", "shots"]),
-                      "awayShots": pick(away, ["total shots", "shots"]),
-                      "homeOn": pick(home, ["shots on target", "shots on goal"]),
-                      "awayOn": pick(away, ["shots on target", "shots on goal"]),
-                      "homeCorners": pick(home, ["corner kicks", "corners"]),
-                      "awayCorners": pick(away, ["corner kicks", "corners"]),
-                      "homeFouls": pick(home, ["fouls"]),
-                      "awayFouls": pick(away, ["fouls"]),
-                      "homeCards": pick(home, ["yellow cards"]) + pick(home, ["red cards"]),
-                      "awayCards": pick(away, ["yellow cards"]) + pick(away, ["red cards"]),
-                      "homeThrow": pick(home, ["throw-ins", "throw ins"]),
-                      "awayThrow": pick(away, ["throw-ins", "throw ins"]),
-                      "homeSaves": pick(home, ["goalkeeper saves", "saves"]),
-                      "awaySaves": pick(away, ["goalkeeper saves", "saves"]),
+                      "homeShots": shots[0], "awayShots": shots[1],
+                      "homeOn": on[0], "awayOn": on[1],
+                      "homeCorners": corners[0], "awayCorners": corners[1],
+                      "homeFouls": fouls[0], "awayFouls": fouls[1],
+                      "homeCards": yellow[0] + red[0], "awayCards": yellow[1] + red[1],
+                      "homeThrow": throwins[0], "awayThrow": throwins[1],
+                      "homeSaves": saves[0], "awaySaves": saves[1],
                   }
               except Exception:
                   return {}
 
-          events = [
-              e for e in (payload.get("events") or [])
-              if isinstance(e, dict)
-              and isinstance(e.get("homeTeam"), dict)
-              and isinstance(e.get("awayTeam"), dict)
-          ]
-
-          type_map_live = {"inprogress", "halftime", "extra_time", "penalties"}
-
           records = []
-          for e in events[:150]:
-              home = e.get("homeTeam") or {}
-              away = e.get("awayTeam") or {}
-              tournament = e.get("tournament") or {}
-              category = tournament.get("category") or {}
-              status = e.get("status") or {}
-              kind = str(status.get("type") or "notstarted")
-              ts = e.get("startTimestamp")
-              dt = datetime.fromtimestamp(int(ts), tz).strftime("%H:%M") if ts else "--:--"
-              hs = e.get("homeScore") or {}
-              aw = e.get("awayScore") or {}
-              score_home = hs.get("current")
-              score_away = aw.get("current")
+          for league in payload.get("leagues") or []:
+              if not isinstance(league, dict):
+                  continue
+              league_name = str(league.get("name") or "Football")
+              for match in league.get("matches") or []:
+                  if not isinstance(match, dict):
+                      continue
+                  home = match.get("home") or {}
+                  away = match.get("away") or {}
+                  status = match.get("status") or {}
+                  utc_time = str(status.get("utcTime") or "")
+                  dt = None
+                  if utc_time:
+                      try:
+                          dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00")).astimezone(tz)
+                      except ValueError:
+                          pass
 
-              records.append({
-                  "id": int(e.get("id") or 0),
-                  "home": str(home.get("name") or "Home"),
-                  "away": str(away.get("name") or "Away"),
-                  "time": dt,
-                  "timestamp": int(ts) if ts else 0,
-                  "league": str(tournament.get("name") or category.get("name") or "Football"),
-                  "status": "LIVE" if kind in type_map_live else ("FT" if kind == "finished" else kind.upper()),
-                  "live": kind in type_map_live,
-                  "scoreHome": int(score_home) if isinstance(score_home, (int, float)) else None,
-                  "scoreAway": int(score_away) if isinstance(score_away, (int, float)) else None,
-                  "stats": {},
-              })
+                  started = bool(status.get("started"))
+                  finished = bool(status.get("finished"))
+                  cancelled = bool(status.get("cancelled"))
+                  live = started and not finished and not cancelled
+                  score_home = home.get("score")
+                  score_away = away.get("score")
 
-          records.sort(key=lambda x: (not x["live"], x["timestamp"]))
+                  records.append({
+                      "id": int(match.get("id") or 0),
+                      "home": str(home.get("name") or "Home"),
+                      "away": str(away.get("name") or "Away"),
+                      "time": dt.strftime("%H:%M") if dt else str(match.get("time") or "--:--"),
+                      "timestamp": int(dt.timestamp()) if dt else 0,
+                      "league": league_name,
+                      "status": "LIVE" if live else ("FT" if finished else ("CANCELLED" if cancelled else "NS")),
+                      "live": live,
+                      "scoreHome": as_int(score_home),
+                      "scoreAway": as_int(score_away),
+                      "stats": {},
+                  })
 
-          need_stats = [r for r in records if r["live"] or r["status"] == "FT"]
-          need_stats = need_stats[:100]
+          records = [r for r in records if r["id"] > 0]
+          records.sort(key=lambda x: (not x["live"], x["timestamp"], x["home"]))
 
-          with ThreadPoolExecutor(max_workers=10) as pool:
+          need_stats = [r for r in records if r["live"] or r["status"] == "FT"][:100]
+          with ThreadPoolExecutor(max_workers=8) as pool:
               futures = {pool.submit(fetch_stats, r["id"]): r for r in need_stats}
               for future in as_completed(futures):
                   futures[future]["stats"] = future.result()
 
           out = {
-              "source": "SofaScore",
-              "date": date,
+              "source": "FotMob",
+              "date": iso_date,
               "updatedAt": datetime.now(tz).isoformat(),
               "matches": records,
           }
 
           os.makedirs("data", exist_ok=True)
-          path = f"data/{date}.json"
-          with open(path, "w", encoding="utf-8") as f:
-              json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+          for path in (f"data/{iso_date}.json", "data/latest.json"):
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
 
-          with open("data/latest.json", "w", encoding="utf-8") as f:
-              json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-
-          print(f"Feed ready: {path} with {len(records)} matches; stats attempted for {len(need_stats)} matches.")
+          print(f"Feed ready: {len(records)} matches; stats attempted for {len(need_stats)} matches.")
           PY
 
       - name: Publish feed
