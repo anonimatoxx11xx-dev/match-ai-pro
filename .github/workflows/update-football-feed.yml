@@ -204,6 +204,12 @@ jobs:
               for future in as_completed(futures):
                   futures[future]["stats"] = future.result()
 
+          # Pubblica solo partite per cui FotMob ha restituito dati statistici.
+          # In questo modo l'app non mostra competizioni/partite che non possiamo
+          # alimentare con tiri, corner, falli, cartellini e parate.
+          records_with_stats = [r for r in records if isinstance(r.get("stats"), dict) and r["stats"]]
+          records = records_with_stats
+
           out = {
               "source": "FotMob",
               "date": iso_date,
@@ -216,7 +222,7 @@ jobs:
               with open(path, "w", encoding="utf-8") as f:
                   json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
 
-          print(f"Feed ready: {len(records)} matches; stats attempted for {len(need_stats)} matches.")
+          print(f"Feed ready: {len(records)} matches with stats; stats attempted for {len(need_stats)} matches.")
           PY
 
       - name: Publish feed
