@@ -192,7 +192,7 @@ jobs:
           }
 
           os.makedirs("data", exist_ok=True)
-          for path in (f"data/{iso_date}.json", "data/latest.json"):
+          for path in (f"data/{iso_date}.json", "data/latest.json", "data/today.json"):
               with open(path, "w", encoding="utf-8") as f:
                   json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
 
