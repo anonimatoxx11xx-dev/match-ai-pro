@@ -92,6 +92,82 @@ class MatchData {
 }
 
 
+class GitHubFeedService {
+  static const endpoints = [
+    'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/',
+    'https://cdn.jsdelivr.net/gh/anonimatoxx11xx-dev/match-ai-pro@main/data/',
+  ];
+
+  Future<List<MatchData>> today() async {
+    final now = DateTime.now();
+    final date = now.year.toString().padLeft(4, '0') + '-' +
+        now.month.toString().padLeft(2, '0') + '-' +
+        now.day.toString().padLeft(2, '0');
+    Object? lastError;
+
+    for (final endpoint in endpoints) {
+      try {
+        final uri = Uri.parse('$endpoint$date.json');
+        final response = await http
+            .get(uri, headers: {'Accept': 'application/json'})
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode != 200) {
+          throw Exception('Feed HTTP '+response.statusCode.toString());
+        }
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final raw = (json['matches'] as List?) ?? [];
+        final result = raw
+            .whereType<Map<String, dynamic>>()
+            .map(_decodeMatch)
+            .toList();
+        if (result.isEmpty) {
+          throw Exception('Feed non contiene partite per '+date);
+        }
+        result.sort((a, b) {
+          if (a.live != b.live) return a.live ? -1 : 1;
+          return a.time.compareTo(b.time);
+        });
+        return result.take(150).toList();
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    throw Exception('Feed GitHub non raggiungibile' +
+        (lastError == null ? '' : ': '+lastError.toString()));
+  }
+
+  MatchData _decodeMatch(Map<String, dynamic> m) {
+    final stats = (m['stats'] as Map?) ?? {};
+    int value(String key) => (stats[key] as num?)?.toInt() ?? 0;
+    return MatchData(
+      id: ((m['id'] as num?) ?? 0).toInt(),
+      home: (m['home'] ?? 'Home').toString(),
+      away: (m['away'] ?? 'Away').toString(),
+      time: (m['time'] ?? '--:--').toString(),
+      league: (m['league'] ?? 'Football').toString(),
+      status: (m['status'] ?? 'NS').toString(),
+      live: m['live'] == true,
+      scoreHome: (m['scoreHome'] as num?)?.toInt(),
+      scoreAway: (m['scoreAway'] as num?)?.toInt(),
+      homeShots: value('homeShots'),
+      awayShots: value('awayShots'),
+      homeOn: value('homeOn'),
+      awayOn: value('awayOn'),
+      homeCorners: value('homeCorners'),
+      awayCorners: value('awayCorners'),
+      homeFouls: value('homeFouls'),
+      awayFouls: value('awayFouls'),
+      homeCards: value('homeCards'),
+      awayCards: value('awayCards'),
+      homeThrow: value('homeThrow'),
+      awayThrow: value('awayThrow'),
+      homeSaves: value('homeSaves'),
+      awaySaves: value('awaySaves'),
+    );
+  }
+}
+
 class SofaScoreService {
   static const base = 'https://api.sofascore.com/api/v1';
   Future<List<MatchData>> today() async {
@@ -365,15 +441,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _load() async {
-    if (apiFootballKey.isEmpty && rapidApiKey.isEmpty && footballDataKey.isEmpty) {
-      setState(() { loading = false; error = 'Nessuna API calcistica configurata'; });
-      return;
-    }
     setState(() { loading = true; error = null; });
     final failures = <String>[];
     try {
       List<MatchData>? data;
-      try { data = await sofaScore.today(); } catch (e) { failures.add('SofaScore: ' + e.toString().replaceFirst('Exception: ', '')); }
+      try { data = await GitHubFeedService().today(); } catch (e) { failures.add('Feed GitHub: ' + e.toString().replaceFirst('Exception: ', '')); }
+      if (data == null || data.isEmpty) {
+        try { data = await sofaScore.today(); } catch (e) { failures.add('SofaScore: ' + e.toString().replaceFirst('Exception: ', '')); }
+      }
       if (data == null || data.isEmpty) {
         try { data = await espn.today(); } catch (e) { failures.add('ESPN: ' + e.toString().replaceFirst('Exception: ', '')); }
       }
@@ -512,9 +587,9 @@ class _HomePageState extends State<HomePage> {
     if (loading) return const Center(child: CircularProgressIndicator());
     if (error != null) {
       return _state(
-        error == 'Nessuna API calcistica configurata' ? 'Configurazione richiesta' : 'Dati non disponibili',
+        'Dati non disponibili',
         error!,
-        setup: error == 'Nessuna API calcistica configurata',
+        setup: false,
       );
     }
     if (matches.isEmpty) {
