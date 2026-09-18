@@ -39,6 +39,7 @@ class MatchData {
   final int homeSaves, awaySaves;
   final List<String> proposals;
   final int proposalScore;
+  final List<String> preMatchStats;
 
   const MatchData({
     required this.id,
@@ -66,6 +67,7 @@ class MatchData {
     required this.awaySaves,
     this.proposals = const [],
     this.proposalScore = 0,
+    this.preMatchStats = const [],
   });
 
   bool get hasProposals => proposals.isNotEmpty || hasStats;
@@ -102,6 +104,7 @@ class MatchData {
   MatchData copyWith({
     int? homeShots, int? awayShots, int? homeOn, int? awayOn,
     int? homeCorners, int? awayCorners, int? homeFouls, int? awayFouls,
+    List<String>? proposals, int? proposalScore, List<String>? preMatchStats,
     int? homeCards, int? awayCards, int? homeThrow, int? awayThrow,
     int? homeSaves, int? awaySaves,
   }) => MatchData(
@@ -321,6 +324,10 @@ class GitHubFeedService {
           .where((e) => e.trim().isNotEmpty)
           .toList(),
       proposalScore: ((m['proposalScore'] as num?) ?? 0).toInt(),
+      preMatchStats: ((m['preMatchStats'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .where((e) => e.trim().isNotEmpty)
+          .toList(),
     );
   }
 }
@@ -773,7 +780,7 @@ class _HomePageState extends State<HomePage> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
-          _header('PARTITE DELLA GIORNATA', '${matches.length} partite • dati reali FotMob'),
+          _header('PARTITE DELLA GIORNATA', '${matches.length} partite • dati reali SofaScore'),
           const SizedBox(height: 14),
           if (live.isNotEmpty) ...[
             _sectionTitle('● LIVE', live.length),
@@ -1270,6 +1277,39 @@ class MatchDetail extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      );
+
+  Widget _preMatchCard(MatchData match) => Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF123D32), Color(0xFF0A211C)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFF00C896).withValues(alpha: .16)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'STATISTICHE PRE-PARTITA',
+              style: TextStyle(color: Color(0xFF79E2C1), fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Forma e modello statistico disponibili prima del calcio d’inizio.',
+              style: TextStyle(color: Colors.white70, height: 1.35),
+            ),
+            const SizedBox(height: 12),
+            ...match.preMatchStats.map(
+              (s) => Padding(
+                padding: const EdgeInsets.only(bottom: 7),
+                child: Text(s, style: const TextStyle(fontWeight: FontWeight.w800)),
+              ),
+            ),
+          ],
         ),
       );
 
