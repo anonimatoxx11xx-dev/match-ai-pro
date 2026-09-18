@@ -126,37 +126,37 @@ jobs:
           for league_name, match in league_items:
               if not isinstance(match, dict):
                   continue
-                  home = match.get("home") or {}
-                  away = match.get("away") or {}
-                  status = match.get("status") or {}
-                  utc_time = str(status.get("utcTime") or "")
-                  dt = None
-                  if utc_time:
-                      try:
-                          dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00")).astimezone(tz)
-                      except ValueError:
-                          pass
+              home = match.get("home") or {}
+              away = match.get("away") or {}
+              status = match.get("status") or {}
+              utc_time = str(status.get("utcTime") or "")
+              dt = None
+              if utc_time:
+                  try:
+                      dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00")).astimezone(tz)
+                  except ValueError:
+                      pass
 
-                  started = bool(status.get("started"))
-                  finished = bool(status.get("finished"))
-                  cancelled = bool(status.get("cancelled"))
-                  live = started and not finished and not cancelled
-                  score_home = home.get("score")
-                  score_away = away.get("score")
+              started = bool(status.get("started"))
+              finished = bool(status.get("finished"))
+              cancelled = bool(status.get("cancelled"))
+              live = started and not finished and not cancelled
+              score_home = home.get("score")
+              score_away = away.get("score")
 
-                  records.append({
-                      "id": int(match.get("id") or 0),
-                      "home": str(home.get("name") or "Home"),
-                      "away": str(away.get("name") or "Away"),
-                      "time": dt.strftime("%H:%M") if dt else str(match.get("time") or "--:--"),
-                      "timestamp": int(dt.timestamp()) if dt else 0,
-                      "league": league_name,
-                      "status": "LIVE" if live else ("FT" if finished else ("CANCELLED" if cancelled else "NS")),
-                      "live": live,
-                      "scoreHome": as_int(score_home),
-                      "scoreAway": as_int(score_away),
-                      "stats": {},
-                  })
+              records.append({
+                  "id": int(match.get("id") or 0),
+                  "home": str(home.get("name") or "Home"),
+                  "away": str(away.get("name") or "Away"),
+                  "time": dt.strftime("%H:%M") if dt else str(match.get("time") or "--:--"),
+                  "timestamp": int(dt.timestamp()) if dt else 0,
+                  "league": league_name,
+                  "status": "LIVE" if live else ("FT" if finished else ("CANCELLED" if cancelled else "NS")),
+                  "live": live,
+                  "scoreHome": as_int(score_home),
+                  "scoreAway": as_int(score_away),
+                  "stats": {},
+              })
 
           records = [r for r in records if r["id"] > 0]
           records.sort(key=lambda x: (not x["live"], x["timestamp"], x["home"]))
