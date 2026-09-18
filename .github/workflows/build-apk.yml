@@ -19,17 +19,32 @@ jobs:
         run: rm -f test/widget_test.dart
       - run: flutter pub get
       - run: flutter analyze
-      - name: Verify API secret
+      - name: Verify football API secrets
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          API_FOOTBALDATA_KEY: ${{ secrets.API_FOOTBALDATA_KEY }}
+          APP_RAPIDAPI_KEY: ${{ secrets.APP_RAPIDAPI_KEY }}
         run: |
-          if [ -z "$API_FOOTBALL_KEY" ]; then
-            echo "API_FOOTBALL_KEY is missing from GitHub repository secrets."
+          configured=0
+          for name in API_FOOTBALL_KEY API_FOOTBALDATA_KEY APP_RAPIDAPI_KEY; do
+            value="$(printenv "$name")"
+            if [ -n "$value" ]; then
+              echo "$name is configured."
+              configured=$((configured + 1))
+            else
+              echo "$name is not configured."
+            fi
+          done
+          if [ "$configured" -eq 0 ]; then
+            echo "No football API secret is configured."
             exit 1
           fi
-          echo "API_FOOTBALL_KEY is configured."
       - name: Build release APK
-        run: flutter build apk --release --dart-define=API_FOOTBALL_KEY="${{ secrets.API_FOOTBALL_KEY }}"
+        run: |
+          flutter build apk --release \
+            --dart-define=API_FOOTBALL_KEY="${{ secrets.API_FOOTBALL_KEY }}" \
+            --dart-define=API_FOOTBALDATA_KEY="${{ secrets.API_FOOTBALDATA_KEY }}" \
+            --dart-define=APP_RAPIDAPI_KEY="${{ secrets.APP_RAPIDAPI_KEY }}"
       - run: cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/MatchAIPro.apk
       - uses: actions/upload-artifact@v4
         with:
