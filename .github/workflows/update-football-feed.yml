@@ -9,6 +9,10 @@ on:
     paths-ignore:
       - "data/**"
 
+concurrency:
+  group: match-ai-pro-feed
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
