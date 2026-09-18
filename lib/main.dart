@@ -218,7 +218,7 @@ class GitHubFeedService {
     for (final endpoint in endpoints) {
       try {
         final separator = endpoint.contains('?') ? '&' : '?';
-        final uri = Uri.parse('$endpoint$separator' + 'v=' + cacheBust);
+        final uri = Uri.parse('$endpoint$separator' 'v=$cacheBust');
         final response = await http
             .get(uri, headers: {'Accept': 'application/json'})
             .timeout(const Duration(seconds: 12));
@@ -358,7 +358,7 @@ class EspnService {
     final now=DateTime.now(); final date=now.year.toString().padLeft(4,'0')+now.month.toString().padLeft(2,'0')+now.day.toString().padLeft(2,'0'); final all=<MatchData>[];
     for(final league in leagues){try{final response=await http.get(Uri.parse('$base/$league/scoreboard?dates=$date'),headers:{'Accept':'application/json'});if(response.statusCode!=200)continue;
       final json=jsonDecode(response.body) as Map<String,dynamic>;final events=(json['events'] as List?)??[];for(final e in events.whereType<Map<String,dynamic>>()){final m=_eventToMatch(e);if(m!=null)all.add(m);}}catch(_){}}
-    final unique=<int,MatchData>{};for(final m in all)unique[m.id]=m;final result=unique.values.toList();result.sort((a,b)=>a.time.compareTo(b.time));
+    final unique=<int,MatchData>{};for(final m in all){unique[m.id]=m;}final result=unique.values.toList();result.sort((a,b)=>a.time.compareTo(b.time));
     if(result.isEmpty)throw Exception('ESPN non ha restituito partite per oggi');return result.take(150).toList();
   }
   MatchData? _eventToMatch(Map<String,dynamic> event){
@@ -1106,24 +1106,6 @@ class _HomePageState extends State<HomePage> {
         ],
       );
 
-  Widget _tag(String s) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(color: const Color(0xFF17352C), borderRadius: BorderRadius.circular(20)),
-        child: Text(s, style: const TextStyle(fontSize: 12)),
-      );
-
-  String _analysis(MatchData m) {
-    if (!m.hasStats) {
-      return 'Partita reale. Le statistiche dettagliate vengono aggiornate automaticamente dal feed remoto quando disponibili.';
-    }
-    final shots = m.homeShots + m.awayShots;
-    final corners = m.homeCorners + m.awayCorners;
-    final cards = m.homeCards + m.awayCards;
-    final level = shots >= 25 ? 'alta' : shots >= 16 ? 'media' : 'contenuta';
-    return 'Intensità ' + level + '. Dati reali: ' + shots.toString() + ' tiri, ' +
-        corners.toString() + ' corner e ' + cards.toString() +
-        ' cartellini. L’analisi confronta volume offensivo, pressione e disciplina senza inventare valori mancanti.';
-  }
 }
 
 class MatchDetail extends StatelessWidget {
