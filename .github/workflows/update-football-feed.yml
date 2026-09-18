@@ -24,6 +24,8 @@ jobs:
 
       - name: Fetch FotMob feed
         shell: bash
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: |
           python3 <<'PY'
           import json
@@ -246,6 +248,188 @@ jobs:
               for future in as_completed(futures):
                   futures[future]["stats"] = future.result()
 
+          # ------------------------------------------------------------------
+          # Secondo livello statistiche: API-Football.
+          # FotMob resta la fonte primaria. Usiamo API-Football solo per le
+          # partite che FotMob non ha ancora valorizzato, così non sovrascriviamo
+          # mai dati già presenti.
+          # ------------------------------------------------------------------
+          api_football_key = os.environ.get("API_FOOTBALL_KEY", "").strip()
+
+          def norm_team(name):
+              import unicodedata
+              text = unicodedata.normalize("NFKD", str(name or ""))
+              text = "".join(ch for ch in text if not unicodedata.combining(ch))
+              return "".join(ch.lower() if ch.isalnum() else " " for ch in text).split()
+
+          def same_team(a, b):
+              aa, bb = norm_team(a), norm_team(b)
+              if not aa or not bb:
+                  return False
+              sa, sb = set(aa), set(bb)
+              return aa == bb or aa[:2] == bb[:2] or (len(sa & sb) >= max(1, min(len(sa), len(sb)) - 1))
+
+          def api_request(path):
+              req = urllib.request.Request(
+                  "https://v3.football.api-sports.io" + path,
+                  headers={
+                      "x-apisports-key": api_football_key,
+                      "Accept": "application/json",
+                      "User-Agent": "MatchAIProFeed/1.0",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  return json.loads(r.read().decode("utf-8"))
+
+          def api_stat_value(block, wanted):
+              for item in block.get("statistics", []) if isinstance(block, dict) else []:
+                  if not isinstance(item, dict):
+                      continue
+                  if str(item.get("type") or "").strip().lower() != wanted.lower():
+                      continue
+                  value = item.get("value")
+                  parsed = as_int(value)
+                  return parsed if parsed is not None else 0
+              return 0
+
+          def api_match_stats(fixture):
+              try:
+                  fixture_id = int(fixture.get("fixture", {}).get("id") or 0)
+                  teams = fixture.get("teams") or {}
+                  home_name = (teams.get("home") or {}).get("name") or ""
+                  away_name = (teams.get("away") or {}).get("name") or ""
+                  if fixture_id <= 0:
+                      return None
+                  detail = api_request(f"/fixtures/statistics?fixture={fixture_id}")
+                  rows = detail.get("response") or []
+                  if len(rows) < 2:
+                      return None
+                  home = rows[0]
+                  away = rows[1]
+                  if not same_team(home_name, (home.get("team") or {}).get("name")):
+                      home, away = away, home
+                  return {
+                      "homeShots": api_stat_value(home, "Total Shots"),
+                      "awayShots": api_stat_value(away, "Total Shots"),
+                      "homeOn": api_stat_value(home, "Shots on Goal"),
+                      "awayOn": api_stat_value(away, "Shots on Goal"),
+                      "homeCorners": api_stat_value(home, "Corner Kicks"),
+                      "awayCorners": api_stat_value(away, "Corner Kicks"),
+                      "homeFouls": api_stat_value(home, "Fouls"),
+                      "awayFouls": api_stat_value(away, "Fouls"),
+                      "homeCards": api_stat_value(home, "Yellow Cards") + api_stat_value(home, "Red Cards"),
+                      "awayCards": api_stat_value(away, "Yellow Cards") + api_stat_value(away, "Red Cards"),
+                      "homeThrow": api_stat_value(home, "Throw-ins"),
+                      "awayThrow": api_stat_value(away, "Throw-ins"),
+                      "homeSaves": api_stat_value(home, "Goalkeeper Saves"),
+                      "awaySaves": api_stat_value(away, "Goalkeeper Saves"),
+                  }
+              except Exception:
+                  return None
+
+          def has_any_stats(stats):
+              return isinstance(stats, dict) and any(as_int(v) is not None and as_int(v) > 0 for v in stats.values())
+
+          if api_football_key:
+              try:
+                  api_payload = api_request(f"/fixtures?date={iso_date}&timezone=Europe%2FZurich")
+                  fixtures = api_payload.get("response") or []
+                  missing = [r for r in records if not has_any_stats(r.get("stats")) and r.get("live")]
+                  # Per non sprecare chiamate sul piano API, aggiorniamo prima
+                  # le partite live. Le terminate/future restano candidate al
+                  # successivo ciclo del feed.
+                  candidates = []
+                  for fixture in fixtures:
+                      if not isinstance(fixture, dict):
+                          continue
+                      teams = fixture.get("teams") or {}
+                      hn = (teams.get("home") or {}).get("name") or ""
+                      an = (teams.get("away") or {}).get("name") or ""
+                      for record in missing:
+                          if same_team(record["home"], hn) and same_team(record["away"], an):
+                              candidates.append((record, fixture))
+                              break
+                  with ThreadPoolExecutor(max_workers=5) as pool:
+                      futures = {pool.submit(api_match_stats, fixture): record for record, fixture in candidates[:15]}
+                      for future in as_completed(futures):
+                          stats = future.result()
+                          if stats and has_any_stats(stats):
+                              futures[future]["stats"] = stats
+              except Exception as exc:
+                  print(f"API-Football fallback skipped: {exc}")
+
+          # ------------------------------------------------------------------
+          # Terzo livello: SofaScore. Nessuna chiave richiesta.
+          # Una sola chiamata per l'elenco giornaliero, poi statistiche solo
+          # sulle partite live senza dati. Anche qui non sovrascriviamo mai.
+          # ------------------------------------------------------------------
+          try:
+              scheduled_url = f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{iso_date}"
+              req = urllib.request.Request(scheduled_url, headers={"User-Agent": "MatchAIProFeed/1.0", "Accept": "application/json"})
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  sofa_events = (json.loads(r.read().decode("utf-8")).get("events") or [])
+              sofa_map = {}
+              for event in sofa_events:
+                  if not isinstance(event, dict):
+                      continue
+                  home = (event.get("homeTeam") or {}).get("name") or ""
+                  away = (event.get("awayTeam") or {}).get("name") or ""
+                  if home and away:
+                      sofa_map[(tuple(norm_team(home)), tuple(norm_team(away)))] = event
+              missing = [r for r in records if not has_any_stats(r.get("stats")) and r.get("live")]
+              def sofa_stats(record):
+                  for (hn, an), event in sofa_map.items():
+                      if same_team(record["home"], " ".join(hn)) and same_team(record["away"], " ".join(an)):
+                          try:
+                              event_id = int(event.get("id") or 0)
+                              req = urllib.request.Request(
+                                  f"https://www.sofascore.com/api/v1/event/{event_id}/statistics",
+                                  headers={"User-Agent": "MatchAIProFeed/1.0", "Accept": "application/json"},
+                              )
+                              with urllib.request.urlopen(req, timeout=15) as r:
+                                  data = json.loads(r.read().decode("utf-8"))
+                              all_period = next((p for p in data.get("statistics", []) if isinstance(p, dict) and p.get("period") == "ALL"), None)
+                              if not all_period:
+                                  return None
+                              home_values, away_values = {}, {}
+                              for group in all_period.get("groups", []):
+                                  for item in (group.get("statisticsItems") or []):
+                                      name = str(item.get("name") or "").lower()
+                                      h, a = as_int(item.get("home")), as_int(item.get("away"))
+                                      if h is not None: home_values[name] = h
+                                      if a is not None: away_values[name] = a
+                              def sv(d, keys):
+                                  for key in keys:
+                                      if key in d: return d[key]
+                                  return 0
+                              return {
+                                  "homeShots": sv(home_values, ["total shots on goal", "shots"]),
+                                  "awayShots": sv(away_values, ["total shots on goal", "shots"]),
+                                  "homeOn": sv(home_values, ["shots on target"]),
+                                  "awayOn": sv(away_values, ["shots on target"]),
+                                  "homeCorners": sv(home_values, ["corner kicks"]),
+                                  "awayCorners": sv(away_values, ["corner kicks"]),
+                                  "homeFouls": sv(home_values, ["fouls"]),
+                                  "awayFouls": sv(away_values, ["fouls"]),
+                                  "homeCards": sv(home_values, ["yellow cards"]) + sv(home_values, ["red cards"]),
+                                  "awayCards": sv(away_values, ["yellow cards"]) + sv(away_values, ["red cards"]),
+                                  "homeThrow": sv(home_values, ["throw-ins"]),
+                                  "awayThrow": sv(away_values, ["throw-ins"]),
+                                  "homeSaves": sv(home_values, ["goalkeeper saves", "saves"]),
+                                  "awaySaves": sv(away_values, ["goalkeeper saves", "saves"]),
+                              }
+                          except Exception:
+                              return None
+                  return None
+              with ThreadPoolExecutor(max_workers=5) as pool:
+                  futures = {pool.submit(sofa_stats, record): record for record in missing[:10]}
+                  for future in as_completed(futures):
+                      stats = future.result()
+                      if stats and has_any_stats(stats):
+                          futures[future]["stats"] = stats
+          except Exception as exc:
+              print(f"SofaScore fallback skipped: {exc}")
+
           # Pubblica i top campionati anche quando una gara non e ancora iniziata:
           # l'app mostra "Statistiche in attesa" e non inventa alcun valore.
 
@@ -263,6 +447,16 @@ jobs:
 
           print(f"Feed ready: {len(records)} matches with stats; stats attempted for {len(need_stats)} matches.")
           PY
+
+      - name: Export optional statistics API key
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          if [ -n "$API_FOOTBALL_KEY" ]; then
+            echo "API-Football fallback enabled"
+          else
+            echo "API-Football fallback not configured; continuing with FotMob/SofaScore"
+          fi
 
       - name: Publish feed
         run: |
