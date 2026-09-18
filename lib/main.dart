@@ -958,10 +958,6 @@ class _HomePageState extends State<HomePage> {
         ],
       );
 
-  Widget _card(MatchData m) => _matchTile(m);
-
-  Widget _stat(String l, int a, int b, IconData i) => _miniStat(l, a, b);
-
   Widget _tag(String s) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(color: const Color(0xFF17352C), borderRadius: BorderRadius.circular(20)),
