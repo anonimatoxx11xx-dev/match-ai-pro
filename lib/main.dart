@@ -887,7 +887,7 @@ class _HomePageState extends State<HomePage> {
   Widget _proposals() => ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
-          _header('PROPOSTE IA', 'Analisi di oggi con dati SofaScore e forma recente'),
+          _header('PROPOSTE IA', 'Analisi di oggi con dati reali e forma recente'),
           const SizedBox(height: 14),
           Container(
             margin: const EdgeInsets.only(bottom: 12),
