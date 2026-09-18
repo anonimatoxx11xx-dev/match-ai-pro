@@ -328,6 +328,30 @@ jobs:
                   records = []
                   source_url = "https://api.sofascore.com/api/v1"
 
+          # Normalize cached records from older feed versions before any keyed access.
+          normalized_records = []
+          for cached_item in records:
+              if not isinstance(cached_item, dict):
+                  continue
+              cached_item.setdefault("id", 0)
+              cached_item.setdefault("home", "Home")
+              cached_item.setdefault("away", "Away")
+              cached_item.setdefault("time", "--:--")
+              cached_item.setdefault("timestamp", 0)
+              cached_item.setdefault("league", "Football")
+              cached_item.setdefault("status", "NS")
+              cached_item.setdefault("live", False)
+              cached_item.setdefault("scoreHome", None)
+              cached_item.setdefault("scoreAway", None)
+              cached_item.setdefault("homeTeamId", None)
+              cached_item.setdefault("awayTeamId", None)
+              cached_item.setdefault("priority", 0)
+              cached_item.setdefault("stats", {})
+              cached_item.setdefault("proposals", [])
+              cached_item.setdefault("proposalScore", 0)
+              normalized_records.append(cached_item)
+          records = normalized_records
+
           records.sort(
               key=lambda x: (
                   not x.get("live", False),
