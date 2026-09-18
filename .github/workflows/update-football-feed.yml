@@ -329,7 +329,12 @@ jobs:
                   source_url = "https://api.sofascore.com/api/v1"
 
           records.sort(
-              key=lambda x: (not x["live"], -x["priority"], x["timestamp"], x["home"])
+              key=lambda x: (
+                  not x.get("live", False),
+                  -(x.get("priority") or 0),
+                  x.get("timestamp") or 0,
+                  x.get("home") or "",
+              )
           )
           records = records[:150]
 
