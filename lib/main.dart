@@ -191,8 +191,8 @@ class FotMobService {
       homeOn: pair('shots on target', true), awayOn: pair('shots on target', false),
       homeCorners: pair('corners', true), awayCorners: pair('corners', false),
       homeFouls: pair('fouls', true), awayFouls: pair('fouls', false),
-      homeCards: pair('yellow cards', true) + pair('red cards', true),
-      awayCards: pair('yellow cards', false) + pair('red cards', false),
+      homeCards: (pair('yellow cards', true) ?? 0) + (pair('red cards', true) ?? 0),
+      awayCards: (pair('yellow cards', false) ?? 0) + (pair('red cards', false) ?? 0),
       homeThrow: pair('throw-ins', true), awayThrow: pair('throw-ins', false),
       homeSaves: pair('saves', true), awaySaves: pair('saves', false),
     );
