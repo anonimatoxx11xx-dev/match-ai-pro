@@ -1251,7 +1251,7 @@ class MatchDetail extends StatelessWidget {
                   _row('Rimesse', match.homeThrow, match.awayThrow, Icons.compare_arrows),
                   _row('Parate', match.homeSaves, match.awaySaves, Icons.pan_tool_alt),
                 ] else ...[
-                  _pendingStatsCard(),
+                  if (match.preMatchStats.isNotEmpty) _preMatchCard(match) else _pendingStatsCard(),
                 ],
                 const SizedBox(height: 8),
                 Container(
