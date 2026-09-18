@@ -95,7 +95,7 @@ class ApiFootballService {
   static const base = 'https://v3.football.api-sports.io';
 
   Map<String, String> get headers => {
-        'x-apisports-key': apiKey,
+        'x-apisports-key': apiFootballKey,
         'Accept': 'application/json',
       };
 
