@@ -486,6 +486,17 @@ jobs:
               cached_item.setdefault("proposals", [])
               cached_item.setdefault("proposalScore", 0)
               cached_item.setdefault("preMatchStats", [])
+              # Drop invalid negative goal projections from older feed runs and allow a clean retry.
+              if any("Gol attesi:" in str(x) and "-" in str(x).split("Gol attesi:", 1)[1] for x in cached_item.get("preMatchStats") or []):
+                  cached_item["preMatchStats"] = [
+                      x for x in cached_item.get("preMatchStats") or []
+                      if "Gol attesi:" not in str(x)
+                  ]
+                  cached_item["proposals"] = [
+                      x for x in cached_item.get("proposals") or []
+                      if "gol attesi" not in str(x).lower()
+                  ]
+                  cached_item["proposalScore"] = 0
               normalized_records.append(cached_item)
           records = normalized_records
 
