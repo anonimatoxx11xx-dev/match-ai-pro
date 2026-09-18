@@ -614,23 +614,24 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _open(MatchData m) async {
     if (!mounted) return;
-    var detailed = m;
-    try {
-      final candidate = await fotMob.details(m).timeout(const Duration(seconds: 4));
-      if (candidate.hasStats) detailed = candidate;
-    } catch (_) {
-      try {
-        final candidate = await sofaScore.details(m).timeout(const Duration(seconds: 4));
-        if (candidate.hasStats) detailed = candidate;
-      } catch (_) {}
-    }
-    if (!mounted) return;
+
+    // Il dettaglio usa sempre prima i dati già verificati dal feed.
+    // Nessun provider secondario può sostituire statistiche valide con zeri.
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF07110F),
-      builder: (_) => MatchDetail(match: detailed),
+      builder: (_) => MatchDetail(match: m),
     );
+
+    // Controllo secondario non bloccante: non modifica la schermata aperta.
+    try {
+      await fotMob.details(m).timeout(const Duration(seconds: 4));
+    } catch (_) {
+      try {
+        await sofaScore.details(m).timeout(const Duration(seconds: 4));
+      } catch (_) {}
+    }
   }
 
   @override
@@ -1078,13 +1079,17 @@ class MatchDetail extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 7),
-                _row('Tiri', match.homeShots, match.awayShots, Icons.sports_soccer),
-                _row('Tiri in porta', match.homeOn, match.awayOn, Icons.gps_fixed),
-                _row('Corner', match.homeCorners, match.awayCorners, Icons.flag),
-                _row('Falli', match.homeFouls, match.awayFouls, Icons.front_hand),
-                _row('Cartellini', match.homeCards, match.awayCards, Icons.style),
-                _row('Rimesse', match.homeThrow, match.awayThrow, Icons.compare_arrows),
-                _row('Parate', match.homeSaves, match.awaySaves, Icons.pan_tool_alt),
+                if (match.hasStats) ...[
+                  _row('Tiri', match.homeShots, match.awayShots, Icons.sports_soccer),
+                  _row('Tiri in porta', match.homeOn, match.awayOn, Icons.gps_fixed),
+                  _row('Corner', match.homeCorners, match.awayCorners, Icons.flag),
+                  _row('Falli', match.homeFouls, match.awayFouls, Icons.front_hand),
+                  _row('Cartellini', match.homeCards, match.awayCards, Icons.style),
+                  _row('Rimesse', match.homeThrow, match.awayThrow, Icons.compare_arrows),
+                  _row('Parate', match.homeSaves, match.awaySaves, Icons.pan_tool_alt),
+                ] else ...[
+                  _pendingStatsCard(),
+                ],
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -1112,6 +1117,30 @@ class MatchDetail extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      );
+
+  Widget _pendingStatsCard() => Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111A18),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('STATISTICHE IN ATTESA',
+                style: TextStyle(
+                    color: Color(0xFF79E2C1),
+                    fontWeight: FontWeight.w900)),
+            SizedBox(height: 8),
+            Text(
+              'Il provider non ha ancora pubblicato le statistiche dettagliate. Nessun valore viene stimato o trasformato artificialmente in 0.',
+              style: TextStyle(color: Colors.white70, height: 1.4),
+            ),
+          ],
         ),
       );
 
