@@ -123,6 +123,9 @@ class MatchData {
         awayThrow: awayThrow ?? this.awayThrow,
         homeSaves: homeSaves ?? this.homeSaves,
         awaySaves: awaySaves ?? this.awaySaves,
+        proposals: proposals ?? this.proposals,
+        proposalScore: proposalScore ?? this.proposalScore,
+        preMatchStats: preMatchStats ?? this.preMatchStats,
       );
 }
 
