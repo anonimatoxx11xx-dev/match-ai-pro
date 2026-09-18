@@ -101,7 +101,7 @@ class FotMobService {
         now.month.toString().padLeft(2, '0') +
         now.day.toString().padLeft(2, '0');
     final response = await http.get(
-      Uri.parse('$base/matches?date=$date'),
+      Uri.parse('$base/data/matches?date=$date&timezone=Europe%2FZurich'),
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0',
