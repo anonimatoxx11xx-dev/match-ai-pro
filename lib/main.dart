@@ -199,8 +199,8 @@ class FotMobService {
 
 class GitHubFeedService {
   static const endpoints = [
-    'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/today.json',
-    'https://cdn.jsdelivr.net/gh/anonimatoxx11xx-dev/match-ai-pro@main/data/today.json',
+    'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json',
+    'https://cdn.jsdelivr.net/gh/anonimatoxx11xx-dev/match-ai-pro@main/data/latest.json',
   ];
 
   Future<List<MatchData>> today() async {
