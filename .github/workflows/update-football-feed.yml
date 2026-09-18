@@ -73,7 +73,7 @@ jobs:
               return 0, 0
 
           def fetch_stats(match_id):
-              detail_url = f"https://www.fotmob.com/api/matchDetails?matchId={match_id}"
+              detail_url = f"https://www.fotmob.com/api/data/matchDetails?matchId={match_id}"
               try:
                   req = urllib.request.Request(detail_url, headers=headers)
                   with urllib.request.urlopen(req, timeout=20) as r:
