@@ -96,7 +96,7 @@ jobs:
                   h, a = as_int(values[0]), as_int(values[1])
                   if h is not None and a is not None:
                       return h, a
-              return 0, 0
+              return None, None
 
           def fetch_stats(match_id):
               detail_url = f"https://www.fotmob.com/api/data/matchDetails?matchId={match_id}"
@@ -118,15 +118,20 @@ jobs:
                   red = pick(items, ["red cards"])
                   throwins = pick(items, ["throw-ins", "throw ins"])
                   saves = pick(items, ["saves", "goalkeeper saves"])
-                  return {
-                      "homeShots": shots[0], "awayShots": shots[1],
-                      "homeOn": on[0], "awayOn": on[1],
-                      "homeCorners": corners[0], "awayCorners": corners[1],
-                      "homeFouls": fouls[0], "awayFouls": fouls[1],
-                      "homeCards": yellow[0] + red[0], "awayCards": yellow[1] + red[1],
-                      "homeThrow": throwins[0], "awayThrow": throwins[1],
-                      "homeSaves": saves[0], "awaySaves": saves[1],
-                  }
+                  stats = {}
+                  def put_pair(hk, ak, pair):
+                      if pair[0] is not None and pair[1] is not None:
+                          stats[hk], stats[ak] = pair
+                  put_pair("homeShots", "awayShots", shots)
+                  put_pair("homeOn", "awayOn", on)
+                  put_pair("homeCorners", "awayCorners", corners)
+                  put_pair("homeFouls", "awayFouls", fouls)
+                  if yellow[0] is not None and yellow[1] is not None:
+                      stats["homeCards"] = yellow[0] + (red[0] or 0)
+                      stats["awayCards"] = yellow[1] + (red[1] or 0)
+                  put_pair("homeThrow", "awayThrow", throwins)
+                  put_pair("homeSaves", "awaySaves", saves)
+                  return stats
               except Exception:
                   return {}
 
@@ -289,8 +294,8 @@ jobs:
                       continue
                   value = item.get("value")
                   parsed = as_int(value)
-                  return parsed if parsed is not None else 0
-              return 0
+                  return parsed
+              return None
 
           def api_match_stats(fixture):
               try:
@@ -308,22 +313,24 @@ jobs:
                   away = rows[1]
                   if not same_team(home_name, (home.get("team") or {}).get("name")):
                       home, away = away, home
-                  return {
-                      "homeShots": api_stat_value(home, "Total Shots"),
-                      "awayShots": api_stat_value(away, "Total Shots"),
-                      "homeOn": api_stat_value(home, "Shots on Goal"),
-                      "awayOn": api_stat_value(away, "Shots on Goal"),
-                      "homeCorners": api_stat_value(home, "Corner Kicks"),
-                      "awayCorners": api_stat_value(away, "Corner Kicks"),
-                      "homeFouls": api_stat_value(home, "Fouls"),
-                      "awayFouls": api_stat_value(away, "Fouls"),
-                      "homeCards": api_stat_value(home, "Yellow Cards") + api_stat_value(home, "Red Cards"),
-                      "awayCards": api_stat_value(away, "Yellow Cards") + api_stat_value(away, "Red Cards"),
-                      "homeThrow": api_stat_value(home, "Throw-ins"),
-                      "awayThrow": api_stat_value(away, "Throw-ins"),
-                      "homeSaves": api_stat_value(home, "Goalkeeper Saves"),
-                      "awaySaves": api_stat_value(away, "Goalkeeper Saves"),
-                  }
+                  stats = {}
+                  def api_pair(hk, ak, stat_type):
+                      h = api_stat_value(home, stat_type)
+                      a = api_stat_value(away, stat_type)
+                      if h is not None and a is not None:
+                          stats[hk], stats[ak] = h, a
+                  api_pair("homeShots", "awayShots", "Total Shots")
+                  api_pair("homeOn", "awayOn", "Shots on Goal")
+                  api_pair("homeCorners", "awayCorners", "Corner Kicks")
+                  api_pair("homeFouls", "awayFouls", "Fouls")
+                  yh, ya = api_stat_value(home, "Yellow Cards"), api_stat_value(away, "Yellow Cards")
+                  rh, ra = api_stat_value(home, "Red Cards"), api_stat_value(away, "Red Cards")
+                  if yh is not None and ya is not None:
+                      stats["homeCards"] = yh + (rh or 0)
+                      stats["awayCards"] = ya + (ra or 0)
+                  api_pair("homeThrow", "awayThrow", "Throw-ins")
+                  api_pair("homeSaves", "awaySaves", "Goalkeeper Saves")
+                  return stats
               except Exception:
                   return None
 
@@ -401,23 +408,24 @@ jobs:
                               def sv(d, keys):
                                   for key in keys:
                                       if key in d: return d[key]
-                                  return 0
-                              return {
-                                  "homeShots": sv(home_values, ["total shots on goal", "shots"]),
-                                  "awayShots": sv(away_values, ["total shots on goal", "shots"]),
-                                  "homeOn": sv(home_values, ["shots on target"]),
-                                  "awayOn": sv(away_values, ["shots on target"]),
-                                  "homeCorners": sv(home_values, ["corner kicks"]),
-                                  "awayCorners": sv(away_values, ["corner kicks"]),
-                                  "homeFouls": sv(home_values, ["fouls"]),
-                                  "awayFouls": sv(away_values, ["fouls"]),
-                                  "homeCards": sv(home_values, ["yellow cards"]) + sv(home_values, ["red cards"]),
-                                  "awayCards": sv(away_values, ["yellow cards"]) + sv(away_values, ["red cards"]),
-                                  "homeThrow": sv(home_values, ["throw-ins"]),
-                                  "awayThrow": sv(away_values, ["throw-ins"]),
-                                  "homeSaves": sv(home_values, ["goalkeeper saves", "saves"]),
-                                  "awaySaves": sv(away_values, ["goalkeeper saves", "saves"]),
-                              }
+                                  return None
+                              stats = {}
+                              def sofa_pair(hk, ak, keys):
+                                  h, a = sv(home_values, keys), sv(away_values, keys)
+                                  if h is not None and a is not None:
+                                      stats[hk], stats[ak] = h, a
+                              sofa_pair("homeShots", "awayShots", ["total shots on goal", "shots"])
+                              sofa_pair("homeOn", "awayOn", ["shots on target"])
+                              sofa_pair("homeCorners", "awayCorners", ["corner kicks"])
+                              sofa_pair("homeFouls", "awayFouls", ["fouls"])
+                              yh, ya = sv(home_values, ["yellow cards"]), sv(away_values, ["yellow cards"])
+                              rh, ra = sv(home_values, ["red cards"]), sv(away_values, ["red cards"])
+                              if yh is not None and ya is not None:
+                                  stats["homeCards"] = yh + (rh or 0)
+                                  stats["awayCards"] = ya + (ra or 0)
+                              sofa_pair("homeThrow", "awayThrow", ["throw-ins"])
+                              sofa_pair("homeSaves", "awaySaves", ["goalkeeper saves", "saves"])
+                              return stats
                           except Exception:
                               return None
                   return None
