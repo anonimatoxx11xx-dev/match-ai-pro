@@ -15,6 +15,8 @@ jobs:
           cache: true
       - name: Create Android host
         run: flutter create --platforms=android --project-name match_ai_pro --org com.matchaipro .
+      - name: Remove generated template test
+        run: rm -f test/widget_test.dart
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build apk --release
