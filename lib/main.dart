@@ -37,6 +37,8 @@ class MatchData {
   final int homeShots, awayShots, homeOn, awayOn, homeCorners, awayCorners;
   final int homeFouls, awayFouls, homeCards, awayCards, homeThrow, awayThrow;
   final int homeSaves, awaySaves;
+  final List<String> proposals;
+  final int proposalScore;
 
   const MatchData({
     required this.id,
@@ -62,7 +64,11 @@ class MatchData {
     required this.awayThrow,
     required this.homeSaves,
     required this.awaySaves,
+    this.proposals = const [],
+    this.proposalScore = 0,
   });
+
+  bool get hasProposals => proposals.isNotEmpty;
 
   bool get hasStats =>
       [homeShots, awayShots, homeOn, awayOn, homeCorners, awayCorners,
@@ -286,6 +292,11 @@ class GitHubFeedService {
       awayThrow: value('awayThrow'),
       homeSaves: value('homeSaves'),
       awaySaves: value('awaySaves'),
+      proposals: ((m['proposals'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .where((e) => e.trim().isNotEmpty)
+          .toList(),
+      proposalScore: ((m['proposalScore'] as num?) ?? 0).toInt(),
     );
   }
 }
@@ -842,33 +853,164 @@ class _HomePageState extends State<HomePage> {
   Widget _proposals() => ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
-          _header('PROPOSTE IA', 'Analisi solo su statistiche realmente disponibili'),
+          _header('PROPOSTE IA', 'Analisi di oggi con dati SofaScore e forma recente'),
           const SizedBox(height: 14),
-          ...matches.where((m) => m.hasStats).take(20).map(
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF123D32), Color(0xFF0A211C)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF00C896).withValues(alpha: .15)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.auto_awesome, color: Color(0xFF79E2C1), size: 28),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Le proposte compaiono anche sulle partite future: usiamo forma recente e risultati reali, non numeri inventati.',
+                    style: TextStyle(color: Colors.white70, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ...matches.where((m) => m.hasProposals).take(20).map(
             (m) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.only(bottom: 11),
               child: Material(
                 color: const Color(0xFF111A18),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(21),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(21),
                   onTap: () => _open(m),
                   child: Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(17),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(m.league.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 7),
-                        Text('${m.home} — ${m.away}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                m.league.toUpperCase(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white54,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: .5,
+                                ),
+                              ),
+                            ),
+                            if (m.live)
+                              const _Live()
+                            else
+                              Text(
+                                m.time,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white54,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                          ],
+                        ),
                         const SizedBox(height: 8),
-                        Text(_analysis(m), style: const TextStyle(color: Colors.white70, height: 1.35)),
+                        Text(
+                          m.home + '  —  ' + m.away,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 13),
+                        Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF00C896), Color(0xFF0B8067)],
+                                ),
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  m.proposalScore.toString(),
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 11),
+                            const Expanded(
+                              child: Text(
+                                'INDICE STATISTICO · FORMA + RISULTATI',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white54,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: .6,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 12),
-                        Wrap(spacing: 7, runSpacing: 7, children: [
-                          _tag('Tiri ${m.homeShots + m.awayShots}'),
-                          _tag('Corner ${m.homeCorners + m.awayCorners}'),
-                          _tag('Carte ${m.homeCards + m.awayCards}'),
-                        ]),
+                        ...m.proposals.take(3).map(
+                          (proposal) => Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 7),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF18312A),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_outline,
+                                  color: Color(0xFF79E2C1),
+                                  size: 17,
+                                ),
+                                const SizedBox(width: 9),
+                                Expanded(
+                                  child: Text(
+                                    proposal,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (m.hasStats)
+                          Text(
+                            'Statistiche disponibili: tiri ' +
+                                m.homeShots.toString() + '–' + m.awayShots.toString() +
+                                ' · corner ' +
+                                m.homeCorners.toString() + '–' + m.awayCorners.toString(),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.white54,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -876,8 +1018,11 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
-          if (!matches.any((m) => m.hasStats))
-            _stateInline('Nessuna analisi disponibile', 'Aspettiamo statistiche reali dal provider.'),
+          if (!matches.any((m) => m.hasProposals))
+            _stateInline(
+              'Analisi in preparazione',
+              'Il feed SofaScore sta raccogliendo forma e risultati recenti prima di generare i segnali.',
+            ),
         ],
       );
 
