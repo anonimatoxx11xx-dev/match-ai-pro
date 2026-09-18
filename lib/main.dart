@@ -68,7 +68,31 @@ class MatchData {
     this.proposalScore = 0,
   });
 
-  bool get hasProposals => proposals.isNotEmpty;
+  bool get hasProposals => proposals.isNotEmpty || hasStats;
+
+  List<String> get effectiveProposals {
+    if (proposals.isNotEmpty) return proposals;
+    if (!hasStats) return const [];
+    final totalShots = homeShots + awayShots;
+    final totalCorners = homeCorners + awayCorners;
+    final totalOn = homeOn + awayOn;
+    final result = <String>[];
+    if (totalShots >= 20) result.add('Over 1.5 • volume di tiri già elevato');
+    if (totalCorners >= 8) result.add('Over 7.5 corner • pressione sulle fasce');
+    if (totalOn >= 6) result.add('Over 5.5 tiri in porta • pressione offensiva');
+    if (result.isEmpty) result.add('Monitorare gol e ritmo • dati live ancora in evoluzione');
+    return result.take(3).toList();
+  }
+
+  int get effectiveProposalScore {
+    if (proposalScore > 0) return proposalScore;
+    if (!hasStats) return 0;
+    var score = 50;
+    if (homeShots + awayShots >= 20) score += 12;
+    if (homeCorners + awayCorners >= 8) score += 10;
+    if (homeOn + awayOn >= 6) score += 10;
+    return score.clamp(50, 82);
+  }
 
   bool get hasStats =>
       [homeShots, awayShots, homeOn, awayOn, homeCorners, awayCorners,
@@ -942,7 +966,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                               child: Center(
                                 child: Text(
-                                  m.proposalScore.toString(),
+                                  m.effectiveProposalScore.toString(),
                                   style: const TextStyle(
                                     color: Colors.black,
                                     fontSize: 16,
@@ -966,7 +990,7 @@ class _HomePageState extends State<HomePage> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        ...m.proposals.take(3).map(
+                        ...m.effectiveProposals.take(3).map(
                           (proposal) => Container(
                             width: double.infinity,
                             margin: const EdgeInsets.only(bottom: 7),
