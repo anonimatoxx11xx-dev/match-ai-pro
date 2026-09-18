@@ -6,7 +6,7 @@ on:
     paths-ignore:
       - "data/**"
 concurrency:
-  group: match-ai-pro-build
+  group: match-ai-pro-build-v2
   cancel-in-progress: true
 
 jobs:
