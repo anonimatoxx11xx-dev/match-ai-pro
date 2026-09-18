@@ -34,7 +34,7 @@ jobs:
           date = now.strftime("%Y%m%d")
           iso_date = now.date().isoformat()
 
-          url = f"https://www.fotmob.com/api/matches?date={date}"
+          url = f"https://www.fotmob.com/api/data/matches?date={date}&timezone=Europe%2FZurich"
           headers = {
               "User-Agent": "Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0",
               "Accept": "application/json,text/plain,*/*",
@@ -105,13 +105,27 @@ jobs:
                   return {}
 
           records = []
-          for league in payload.get("leagues") or []:
-              if not isinstance(league, dict):
-                  continue
-              league_name = str(league.get("name") or "Football")
-              for match in league.get("matches") or []:
+          source_matches = payload.get("matches")
+          if isinstance(source_matches, list):
+              flat = []
+              for match in source_matches:
                   if not isinstance(match, dict):
                       continue
+                  league_obj = match.get("league") or {}
+                  flat.append((str(league_obj.get("name") or match.get("leagueName") or "Football"), match))
+              league_items = flat
+          else:
+              league_items = []
+              for league in payload.get("leagues") or []:
+                  if not isinstance(league, dict):
+                      continue
+                  league_name = str(league.get("name") or "Football")
+                  for match in league.get("matches") or []:
+                      league_items.append((league_name, match))
+
+          for league_name, match in league_items:
+              if not isinstance(match, dict):
+                  continue
                   home = match.get("home") or {}
                   away = match.get("away") or {}
                   status = match.get("status") or {}
