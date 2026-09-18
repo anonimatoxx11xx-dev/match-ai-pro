@@ -293,7 +293,7 @@ jobs:
 
               candidates = [
                   x for x in records
-                  if x.get("status") == "NS" and not x.get("proposals") and (x.get("proposalScore") or 0) == 0
+                  if x.get("status") == "NS" and not x.get("proposals") and (x.get("proposalScore") or 0) <= 0
               ][:20]
               if not candidates:
                   return
@@ -303,6 +303,7 @@ jobs:
                   {"date": ISO_DATE, "timezone": "Europe/Zurich"},
               )
               fixtures = (payload or {}).get("response") or []
+              print("API-Football fixtures:", len(fixtures), "candidates:", len(candidates))
               fixture_map = {}
               for fixture in fixtures:
                   teams = fixture.get("teams") or {}
