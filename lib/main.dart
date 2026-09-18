@@ -33,7 +33,39 @@ class _HomePageState extends State<HomePage> {
   Widget _header(String title,String sub)=>Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(borderRadius:BorderRadius.circular(22),gradient:const LinearGradient(colors:[Color(0xFF12382E),Color(0xFF0D201B)])),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(sub,style:const TextStyle(color:Colors.white70))]));
   Widget _matches()=>ListView(padding:const EdgeInsets.all(16),children:[_header('PARTITE DELLA GIORNATA','Statistiche e analisi IA'),const SizedBox(height:16),...matches.map((m)=>Padding(padding:const EdgeInsets.only(bottom:12),child:InkWell(onTap:()=>_open(m),child:_card(m))))]);
   Widget _proposals()=>ListView(padding:const EdgeInsets.all(16),children:[_header('PROPOSTE IA','Lettura automatica dei dati disponibili'),const SizedBox(height:16),...matches.map((m)=>Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(m.home+' — '+m.away,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800)),const SizedBox(height:10),Text(_analysis(m),style:const TextStyle(color:Colors.white70,height:1.4)),const SizedBox(height:10),Wrap(spacing:8,children:[_tag('Tiri '+(m.homeShots+m.awayShots).toString()),_tag('Corner '+(m.homeCorners+m.awayCorners).toString()),_tag('Cartellini '+(m.homeCards+m.awayCards).toString())])]))))]);
-  Widget _center()=>ListView(padding:const EdgeInsets.all(16),children:[_header('AI CENTER','Confronta qualsiasi partita'),const SizedBox(height:16),Card(child:Padding(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Icon(Icons.psychology_alt,size:42,color:Color(0xFF00C896)),const SizedBox(height:10),const Text('Analisi interattiva',style:TextStyle(fontSize:21,fontWeight:FontWeight.w800)),const SizedBox(height:8),const Text('Apri una partita per visualizzare il confronto completo tra tiri, corner, falli, cartellini, rimesse e parate.',style:TextStyle(color:Colors.white70)),const SizedBox(height:16),...matches.map((m)=>Padding(padding:const EdgeInsets.only(bottom:8),child:OutlinedButton.icon(onPressed:()=>_open(m),icon:const Icon(Icons.analytics_outlined),label:Text(m.home+' — '+m.away))))]))]);
+  Widget _center() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _header('AI CENTER', 'Confronta qualsiasi partita'),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.psychology_alt, size: 42, color: Color(0xFF00C896)),
+                const SizedBox(height: 10),
+                const Text('Analisi interattiva', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                const Text('Apri una partita per visualizzare il confronto completo tra tiri, corner, falli, cartellini, rimesse e parate.', style: TextStyle(color: Colors.white70)),
+                const SizedBox(height: 16),
+                ...matches.map((m) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => _open(m),
+                    icon: const Icon(Icons.analytics_outlined),
+                    label: Text('\${m.home} — \${m.away}'),
+                  ),
+                )),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
   void _open(MatchData m)=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF07110F),builder:(_)=>MatchDetail(match:m));
   Widget _card(MatchData m)=>Card(shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(18)),child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(children:[Text(m.league,style:const TextStyle(color:Colors.white54)),const Spacer(),m.live?const _Live():Text(m.time,style:const TextStyle(fontWeight:FontWeight.w800))]),const SizedBox(height:14),Row(children:[Expanded(child:Text(m.home,textAlign:TextAlign.center,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800))),const Text('VS',style:TextStyle(color:Colors.white38)),Expanded(child:Text(m.away,textAlign:TextAlign.center,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)))]),const SizedBox(height:14),Row(mainAxisAlignment:MainAxisAlignment.spaceAround,children:[_stat('Tiri',m.homeShots,m.awayShots,Icons.sports_soccer),_stat('Corner',m.homeCorners,m.awayCorners,Icons.flag),_stat('Cartellini',m.homeCards,m.awayCards,Icons.style),_stat('Falli',m.homeFouls,m.awayFouls,Icons.front_hand)])])));
   Widget _stat(String l,int a,int b,IconData i)=>Column(children:[Icon(i,size:18,color:Colors.white54),Text(a.toString()+':'+b.toString(),style:const TextStyle(fontWeight:FontWeight.w800)),Text(l,style:const TextStyle(fontSize:9,color:Colors.white38))]);
