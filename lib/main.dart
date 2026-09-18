@@ -91,6 +91,78 @@ class MatchData {
       );
 }
 
+
+class SofaScoreService {
+  static const base = 'https://www.sofascore.com/api/v1';
+  Future<List<MatchData>> today() async {
+    final now = DateTime.now();
+    final date = now.year.toString().padLeft(4, '0') + '-' + now.month.toString().padLeft(2, '0') + '-' + now.day.toString().padLeft(2, '0');
+    final response = await http.get(Uri.parse('$base/sport/football/scheduled-events/$date'), headers: {'Accept':'application/json','User-Agent':'Mozilla/5.0'});
+    if (response.statusCode != 200) throw Exception('SofaScore HTTP \${response.statusCode}');
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final raw = (json['events'] as List?) ?? [];
+    final result = raw.whereType<Map<String,dynamic>>().where((e)=>e['homeTeam'] is Map && e['awayTeam'] is Map).map(_eventToMatch).toList();
+    if (result.isEmpty) throw Exception('SofaScore non ha restituito partite per oggi');
+    result.sort((a,b){ if(a.live!=b.live)return a.live?-1:1; return a.time.compareTo(b.time);});
+    return result.take(150).toList();
+  }
+  MatchData _eventToMatch(Map<String,dynamic> e) {
+    final home=(e['homeTeam'] as Map?)??{}, away=(e['awayTeam'] as Map?)??{}, tournament=(e['tournament'] as Map?)??{}, category=(tournament['category'] as Map?)??{}, status=(e['status'] as Map?)??{};
+    final type=(status['type']??'notstarted').toString();
+    final ts=(e['startTimestamp'] as num?)?.toInt();
+    final date=ts==null?null:DateTime.fromMillisecondsSinceEpoch(ts*1000).toLocal();
+    final hs=(e['homeScore'] as Map?)??{}, as=(e['awayScore'] as Map?)??{};
+    final live={'inprogress','halftime','extra_time','penalties'}.contains(type);
+    final finished=type=='finished';
+    return MatchData(id:((e['id'] as num?)??0).toInt(),home:(home['name']??'Home').toString(),away:(away['name']??'Away').toString(),
+      time:date==null?'--:--':date.hour.toString().padLeft(2,'0')+':'+date.minute.toString().padLeft(2,'0'),
+      league:(tournament['name']??category['name']??'Football').toString(),status:live?'LIVE':finished?'FT':'NS',live:live,
+      scoreHome:(hs['current'] as num?)?.toInt(),scoreAway:(as['current'] as num?)?.toInt(),
+      homeShots:0,awayShots:0,homeOn:0,awayOn:0,homeCorners:0,awayCorners:0,homeFouls:0,awayFouls:0,homeCards:0,awayCards:0,homeThrow:0,awayThrow:0,homeSaves:0,awaySaves:0);
+  }
+  Future<MatchData> details(MatchData match) async {
+    final response=await http.get(Uri.parse('$base/event/\${match.id}/statistics'),headers:{'Accept':'application/json','User-Agent':'Mozilla/5.0'});
+    if(response.statusCode!=200)throw Exception('SofaScore HTTP \${response.statusCode}');
+    final json=jsonDecode(response.body) as Map<String,dynamic>;
+    final periods=(json['statistics'] as List?)??[]; Map all={};
+    for(final p in periods.whereType<Map>()){if(p['period']=='ALL'){all=p;break;}}
+    if(all.isEmpty&&periods.isNotEmpty&&periods.first is Map)all=periods.first as Map;
+    final groups=(all['groups'] as List?)??[]; final home=<String,int>{},away=<String,int>{};
+    for(final group in groups.whereType<Map>()){final items=(group['statisticsItems'] as List?)??[];for(final item in items.whereType<Map>()){
+      final name=(item['name']??'').toString().toLowerCase(); final h=_number(item['home']),a=_number(item['away']); if(h!=null)home[name]=h;if(a!=null)away[name]=a;}}
+    return match.copyWith(homeShots:_value(home,['total shots','shots']),awayShots:_value(away,['total shots','shots']),
+      homeOn:_value(home,['shots on target','shots on goal']),awayOn:_value(away,['shots on target','shots on goal']),
+      homeCorners:_value(home,['corner kicks','corners']),awayCorners:_value(away,['corner kicks','corners']),
+      homeFouls:_value(home,['fouls']),awayFouls:_value(away,['fouls']),
+      homeCards:_value(home,['yellow cards'])+_value(home,['red cards']),awayCards:_value(away,['yellow cards'])+_value(away,['red cards']),
+      homeThrow:_value(home,['throw-ins','throw ins']),awayThrow:_value(away,['throw-ins','throw ins']),
+      homeSaves:_value(home,['goalkeeper saves','saves']),awaySaves:_value(away,['goalkeeper saves','saves']));
+  }
+  int? _number(dynamic v){if(v is num)return v.toInt();if(v is String)return int.tryParse(v.replaceAll('%','').trim());return null;}
+  int _value(Map<String,int> m,List<String> names){for(final n in names){final v=m[n];if(v!=null)return v;}return 0;}
+}
+
+class EspnService {
+  static const base='https://site.api.espn.com/apis/site/v2/sports/soccer';
+  static const leagues=['ita.1','eng.1','esp.1','ger.1','fra.1','uefa.champions','uefa.europa','uefa.europa.conf','usa.1','ned.1','por.1','bel.1','sco.1','tur.1','bra.1','arg.1','mex.1','sau.1','fifa.world'];
+  Future<List<MatchData>> today() async {
+    final now=DateTime.now(); final date=now.year.toString().padLeft(4,'0')+now.month.toString().padLeft(2,'0')+now.day.toString().padLeft(2,'0'); final all=<MatchData>[];
+    for(final league in leagues){try{final response=await http.get(Uri.parse('$base/$league/scoreboard?dates=$date'),headers:{'Accept':'application/json'});if(response.statusCode!=200)continue;
+      final json=jsonDecode(response.body) as Map<String,dynamic>;final events=(json['events'] as List?)??[];for(final e in events.whereType<Map<String,dynamic>>()){final m=_eventToMatch(e);if(m!=null)all.add(m);}}catch(_){}}
+    final unique=<int,MatchData>{};for(final m in all)unique[m.id]=m;final result=unique.values.toList();result.sort((a,b)=>a.time.compareTo(b.time));
+    if(result.isEmpty)throw Exception('ESPN non ha restituito partite per oggi');return result.take(150).toList();
+  }
+  MatchData? _eventToMatch(Map<String,dynamic> event){
+    final competitions=(event['competitions'] as List?)??[];if(competitions.isEmpty||competitions.first is! Map)return null;final comp=competitions.first as Map;final competitors=(comp['competitors'] as List?)??[];if(competitors.length<2)return null;
+    Map home={},away={};for(final x in competitors.whereType<Map>()){if(x['homeAway']=='home')home=x;if(x['homeAway']=='away')away=x;}
+    final ht=(home['team'] as Map?)??{},at=(away['team'] as Map?)??{},status=(comp['status'] as Map?)??{},type=(status['type'] as Map?)??{},state=(type['state']??'').toString();final date=DateTime.tryParse((event['date']??'').toString())?.toLocal();
+    return MatchData(id:int.tryParse((event['id']??'').toString())??0,home:(ht['displayName']??ht['name']??'Home').toString(),away:(at['displayName']??at['name']??'Away').toString(),
+      time:date==null?'--:--':date.hour.toString().padLeft(2,'0')+':'+date.minute.toString().padLeft(2,'0'),league:((event['league'] as Map?)?['name']??'Football').toString(),
+      status:state=='in'?'LIVE':state=='post'?'FT':'NS',live:state=='in',scoreHome:int.tryParse((home['score']??'').toString()),scoreAway:int.tryParse((away['score']??'').toString()),
+      homeShots:0,awayShots:0,homeOn:0,awayOn:0,homeCorners:0,awayCorners:0,homeFouls:0,awayFouls:0,homeCards:0,awayCards:0,homeThrow:0,awayThrow:0,homeSaves:0,awaySaves:0);
+  }
+}
+
 class ApiFootballService {
   static const base = 'https://v3.football.api-sports.io';
   final bool rapidApi;
@@ -280,6 +352,8 @@ class _HomePageState extends State<HomePage> {
   bool loading = true;
   String? error;
   List<MatchData> matches = [];
+  final sofaScore = SofaScoreService();
+  final espn = EspnService();
   final api = const ApiFootballService();
   final rapidApi = const ApiFootballService(rapidApi: true);
   final footballData = FootballDataService();
@@ -299,7 +373,11 @@ class _HomePageState extends State<HomePage> {
     final failures = <String>[];
     try {
       List<MatchData>? data;
-      if (apiFootballKey.isNotEmpty) {
+      try { data = await sofaScore.today(); } catch (e) { failures.add('SofaScore: ' + e.toString().replaceFirst('Exception: ', '')); }
+      if (data == null || data.isEmpty) {
+        try { data = await espn.today(); } catch (e) { failures.add('ESPN: ' + e.toString().replaceFirst('Exception: ', '')); }
+      }
+      if ((data == null || data.isEmpty) && apiFootballKey.isNotEmpty) {
         try { data = await api.today(); } catch (e) { failures.add('API-Football: ' + e.toString().replaceFirst('Exception: ', '')); }
       }
       if ((data == null || data.isEmpty) && rapidApiKey.isNotEmpty) {
@@ -329,12 +407,10 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       try {
-        if (apiFootballKey.isNotEmpty) {
-          try { current = await api.details(m); } catch (_) {
-            if (rapidApiKey.isNotEmpty) current = await rapidApi.details(m);
-          }
-        } else if (rapidApiKey.isNotEmpty) {
-          current = await rapidApi.details(m);
+        try { current = await sofaScore.details(m); } catch (_) {
+          if (apiFootballKey.isNotEmpty) {
+            try { current = await api.details(m); } catch (_) { if (rapidApiKey.isNotEmpty) current = await rapidApi.details(m); }
+          } else if (rapidApiKey.isNotEmpty) { current = await rapidApi.details(m); }
         }
         final index = matches.indexWhere((x) => x.id == m.id);
         if (index >= 0) setState(() => matches[index] = current);
