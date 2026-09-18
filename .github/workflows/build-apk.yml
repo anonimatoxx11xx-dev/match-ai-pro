@@ -25,3 +25,5 @@ jobs:
         with:
           name: MatchAIPro-APK
           path: build/app/outputs/flutter-apk/MatchAIPro.apk
+
+# CI trigger after source fix
