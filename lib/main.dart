@@ -606,7 +606,15 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-      child: Column(
+  Widget _header(String title, String sub) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF12382E), Color(0xFF0D201B)],
+          ),
+        ),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
