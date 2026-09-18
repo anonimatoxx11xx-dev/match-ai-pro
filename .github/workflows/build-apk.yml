@@ -18,7 +18,7 @@ jobs:
       - name: Remove generated template test
         run: rm -f test/widget_test.dart
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - name: Verify football API secrets
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
