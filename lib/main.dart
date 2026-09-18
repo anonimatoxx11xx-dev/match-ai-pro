@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-const apiKey = String.fromEnvironment('API_FOOTBALL_KEY');
+const apiFootballKey = String.fromEnvironment('API_FOOTBALL_KEY');
+const footballDataKey = String.fromEnvironment('API_FOOTBALDATA_KEY');
+const rapidApiKey = String.fromEnvironment('APP_RAPIDAPI_KEY');
 
 void main() => runApp(const MatchAIProApp());
 
@@ -203,6 +205,61 @@ class ApiFootballService {
   }
 }
 
+class FootballDataService {
+  static const base = 'https://api.football-data.org/v4';
+
+  Future<List<MatchData>> today() async {
+    final now = DateTime.now().toUtc();
+    final date = now.year.toString().padLeft(4, '0') + '-' +
+        now.month.toString().padLeft(2, '0') + '-' +
+        now.day.toString().padLeft(2, '0');
+
+    final uri = Uri.parse('$base/matches?dateFrom=$date&dateTo=$date');
+    final response = await http.get(uri, headers: {
+      'X-Auth-Token': footballDataKey,
+      'Accept': 'application/json',
+    });
+
+    if (response.statusCode != 200) {
+      throw Exception('Football-Data API ' + response.statusCode.toString() + ': ' + response.body);
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final raw = (json['matches'] as List?) ?? [];
+    final result = raw.map((e) {
+      final f = e as Map<String, dynamic>;
+      final home = (f['homeTeam'] as Map<String, dynamic>?) ?? {};
+      final away = (f['awayTeam'] as Map<String, dynamic>?) ?? {};
+      final score = (f['score'] as Map<String, dynamic>?) ?? {};
+      final fullTime = (score['fullTime'] as Map<String, dynamic>?) ?? {};
+      final status = (f['status'] ?? 'SCHEDULED').toString();
+      final utcDate = DateTime.tryParse((f['utcDate'] ?? '').toString());
+
+      return MatchData(
+        id: ((f['id'] as num?) ?? 0).toInt(),
+        home: (home['name'] ?? 'Home').toString(),
+        away: (away['name'] ?? 'Away').toString(),
+        time: utcDate == null ? '--:--' : utcDate.toLocal().hour.toString().padLeft(2, '0') + ':' + utcDate.toLocal().minute.toString().padLeft(2, '0'),
+        league: ((f['competition'] as Map<String, dynamic>?)?['name'] ?? 'Football').toString(),
+        status: status,
+        live: const {'IN_PLAY', 'PAUSED'}.contains(status),
+        scoreHome: (fullTime['home'] as num?)?.toInt(),
+        scoreAway: (fullTime['away'] as num?)?.toInt(),
+        homeShots: 0, awayShots: 0, homeOn: 0, awayOn: 0,
+        homeCorners: 0, awayCorners: 0, homeFouls: 0, awayFouls: 0,
+        homeCards: 0, awayCards: 0, homeThrow: 0, awayThrow: 0,
+        homeSaves: 0, awaySaves: 0,
+      );
+    }).toList();
+
+    result.sort((a, b) {
+      if (a.live != b.live) return a.live ? -1 : 1;
+      return a.time.compareTo(b.time);
+    });
+    return result;
+  }
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -215,6 +272,7 @@ class _HomePageState extends State<HomePage> {
   String? error;
   List<MatchData> matches = [];
   final api = ApiFootballService();
+  final footballData = FootballDataService();
 
   @override
   void initState() {
@@ -223,16 +281,23 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _load() async {
-    if (apiKey.isEmpty) {
-      setState(() {
-        loading = false;
-        error = 'API key non configurata';
-      });
+    if (apiFootballKey.isEmpty && footballDataKey.isEmpty) {
+      setState(() { loading = false; error = 'Nessuna API calcistica configurata'; });
       return;
     }
     setState(() { loading = true; error = null; });
     try {
-      final data = await api.today();
+      List<MatchData> data;
+      if (apiFootballKey.isNotEmpty) {
+        try {
+          data = await api.today();
+        } catch (_) {
+          if (footballDataKey.isEmpty) rethrow;
+          data = await footballData.today();
+        }
+      } else {
+        data = await footballData.today();
+      }
       if (!mounted) return;
       setState(() { matches = data; loading = false; });
     } catch (e) {
@@ -355,7 +420,7 @@ class _HomePageState extends State<HomePage> {
     if (loading) return const Center(child: CircularProgressIndicator());
     if (error != null) {
       return _state(
-        error == 'API key non configurata' ? 'Configurazione richiesta' : 'Dati non disponibili',
+        error == 'Nessuna API calcistica configurata' ? 'Configurazione richiesta' : 'Dati non disponibili',
         error!,
         setup: error == 'API key non configurata',
       );
