@@ -22,37 +22,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch FotMob feed
+      - name: Fetch SofaScore football feed
         shell: bash
-        env:
-          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: |
           python3 <<'PY'
           import json
-          import os
+          import re
           import urllib.request
           from concurrent.futures import ThreadPoolExecutor, as_completed
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
-          tz = ZoneInfo("Europe/Zurich")
-          now = datetime.now(tz)
-          date = now.strftime("%Y%m%d")
-          iso_date = now.date().isoformat()
+          TZ = ZoneInfo("Europe/Zurich")
+          NOW = datetime.now(TZ)
+          ISO_DATE = NOW.date().isoformat()
 
-          url = f"https://www.fotmob.com/api/data/matches?date={date}&timezone=Europe%2FZurich&ccode3=ITA"
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0",
-              "Accept": "application/json,text/plain,*/*",
-              "Accept-Language": "en-US,en;q=0.9",
+          HEADERS = {
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8",
+              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+              "Origin": "https://www.sofascore.com",
+              "Referer": "https://www.sofascore.com/",
+              "Cache-Control": "no-cache",
           }
 
-          try:
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  payload = json.loads(r.read().decode("utf-8"))
-          except Exception as exc:
-              raise SystemExit(f"FotMob feed failed: {exc}")
+          def get_json(url, timeout=20):
+              req = urllib.request.Request(url, headers=HEADERS)
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  return json.loads(r.read().decode("utf-8"))
 
           def as_int(value):
               if isinstance(value, bool):
@@ -60,411 +57,307 @@ jobs:
               if isinstance(value, (int, float)):
                   return int(value)
               if isinstance(value, str):
-                  try:
-                      return int(float(value.replace("%", "").strip()))
-                  except ValueError:
-                      return None
+                  match = re.search(r"-?\d+", value.replace("%", ""))
+                  return int(match.group()) if match else None
               return None
 
-          def iter_stat_entries(node):
-              """
-              FotMob groups match stats in nested sections such as:
-              Top stats -> stats -> [ {title, stats:[home,away]}, ... ].
-              Walk every nested list/dict so the parser keeps working if
-              FotMob adds another grouping layer.
-              """
-              if isinstance(node, dict):
-                  title = node.get("title")
-                  values = node.get("stats")
-                  if title is not None and isinstance(values, list) and len(values) >= 2:
-                      yield node
-                  for value in node.values():
-                      yield from iter_stat_entries(value)
-              elif isinstance(node, list):
-                  for value in node:
-                      yield from iter_stat_entries(value)
+          def score_value(value):
+              if not isinstance(value, dict):
+                  return None
+              for key in ("current", "display", "normaltime"):
+                  parsed = as_int(value.get(key))
+                  if parsed is not None:
+                      return parsed
+              return None
 
-          def pick(block, titles):
-              wanted = [x.lower() for x in titles]
-              for item in iter_stat_entries(block):
-                  title = str(item.get("title") or "").strip().lower()
-                  if not any(w == title or w in title for w in wanted):
+          def state(event):
+              kind = str((event.get("status") or {}).get("type") or "").lower()
+              live = kind in {"inprogress", "halftime", "extra_time", "penalties", "interrupted"}
+              finished = kind in {"finished", "ended", "afterextra", "afterpenalties"}
+              return live, finished
+
+          def record(event):
+              home = event.get("homeTeam") or {}
+              away = event.get("awayTeam") or {}
+              tournament = event.get("tournament") or {}
+              live, finished = state(event)
+              timestamp = as_int(event.get("startTimestamp")) or 0
+              dt = datetime.fromtimestamp(timestamp, TZ) if timestamp else None
+              return {
+                  "id": as_int(event.get("id")) or 0,
+                  "home": str(home.get("name") or "Home"),
+                  "away": str(away.get("name") or "Away"),
+                  "time": dt.strftime("%H:%M") if dt else "--:--",
+                  "timestamp": timestamp,
+                  "league": str(tournament.get("name") or "Football"),
+                  "status": "LIVE" if live else ("FT" if finished else "NS"),
+                  "live": live,
+                  "scoreHome": score_value(event.get("homeScore")),
+                  "scoreAway": score_value(event.get("awayScore")),
+                  "homeTeamId": as_int(home.get("id")),
+                  "awayTeamId": as_int(away.get("id")),
+                  "priority": as_int(tournament.get("priority")) or 0,
+                  "stats": {},
+                  "proposals": [],
+                  "proposalScore": 0,
+              }
+
+          def load_events():
+              urls = [
+                  f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{ISO_DATE}",
+                  f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{ISO_DATE}",
+              ]
+              last_error = None
+              for url in urls:
+                  try:
+                      data = get_json(url, 25)
+                      events = data.get("events") or []
+                      if events:
+                          return events, url
+                  except Exception as exc:
+                      last_error = exc
+              raise RuntimeError("SofaScore scheduled events unavailable: " + str(last_error))
+
+          def stat_num(item, side):
+              parsed = as_int(item.get(side + "Value"))
+              if parsed is not None:
+                  return parsed
+              return as_int(item.get(side))
+
+          def stat_pair(items, aliases):
+              aliases = {x.lower() for x in aliases}
+              for item in items:
+                  if not isinstance(item, dict):
                       continue
-                  values = item.get("stats")
-                  if not isinstance(values, list) or len(values) < 2:
+                  key = str(item.get("key") or "").lower()
+                  name = str(item.get("name") or "").lower()
+                  if not (key in aliases or name in aliases or any(a in key or a in name for a in aliases)):
                       continue
-                  h, a = as_int(values[0]), as_int(values[1])
-                  if h is not None and a is not None:
-                      return h, a
+                  home = stat_num(item, "home")
+                  away = stat_num(item, "away")
+                  if home is not None and away is not None:
+                      return home, away
               return None, None
 
-          def fetch_stats(match_id):
-              detail_url = f"https://www.fotmob.com/api/data/matchDetails?matchId={match_id}"
+          def match_stats(event_id):
               try:
-                  req = urllib.request.Request(detail_url, headers=headers)
-                  with urllib.request.urlopen(req, timeout=20) as r:
-                      body = json.loads(r.read().decode("utf-8"))
-                  content = body.get("content") or {}
-                  periods = content.get("stats", {}).get("Periods", {})
-                  all_stats = periods.get("All", {}) if isinstance(periods, dict) else {}
-                  items = all_stats.get("stats", []) if isinstance(all_stats, dict) else []
-                  if not isinstance(items, list):
+                  data = get_json(
+                      "https://api.sofascore.com/api/v1/event/" + str(event_id) + "/statistics",
+                      18,
+                  )
+                  period = next(
+                      (p for p in data.get("statistics", []) if isinstance(p, dict) and p.get("period") == "ALL"),
+                      None,
+                  )
+                  if not period:
                       return {}
-                  shots = pick(items, ["total shots", "shots"])
-                  on = pick(items, ["shots on target", "shots on goal"])
-                  corners = pick(items, ["corners"])
-                  fouls = pick(items, ["fouls"])
-                  yellow = pick(items, ["yellow cards"])
-                  red = pick(items, ["red cards"])
-                  throwins = pick(items, ["throw-ins", "throw ins"])
-                  saves = pick(items, ["saves", "goalkeeper saves"])
-                  stats = {}
-                  def put_pair(hk, ak, pair):
-                      if pair[0] is not None and pair[1] is not None:
-                          stats[hk], stats[ak] = pair
-                  put_pair("homeShots", "awayShots", shots)
-                  put_pair("homeOn", "awayOn", on)
-                  put_pair("homeCorners", "awayCorners", corners)
-                  put_pair("homeFouls", "awayFouls", fouls)
-                  if yellow[0] is not None and yellow[1] is not None:
-                      stats["homeCards"] = yellow[0] + (red[0] or 0)
-                      stats["awayCards"] = yellow[1] + (red[1] or 0)
-                  put_pair("homeThrow", "awayThrow", throwins)
-                  put_pair("homeSaves", "awaySaves", saves)
-                  return stats
+                  items = []
+                  for group in period.get("groups") or []:
+                      items.extend(group.get("statisticsItems") or [])
+                  result = {}
+                  mapping = [
+                      (("homeShots", "awayShots"), {"totalshots", "total shots", "shots"}),
+                      (("homeOn", "awayOn"), {"shotsontarget", "shots on target", "shotsongoal"}),
+                      (("homeCorners", "awayCorners"), {"cornerkicks", "corner kicks", "corners"}),
+                      (("homeFouls", "awayFouls"), {"fouls"}),
+                      (("homeThrow", "awayThrow"), {"throwins", "throw-ins", "throw ins"}),
+                      (("homeSaves", "awaySaves"), {"goalkeepersaves", "goalkeeper saves", "saves"}),
+                  ]
+                  for keys, aliases in mapping:
+                      home, away = stat_pair(items, aliases)
+                      if home is not None and away is not None:
+                          result[keys[0]], result[keys[1]] = home, away
+                  yh, ya = stat_pair(items, {"yellowcards", "yellow cards"})
+                  rh, ra = stat_pair(items, {"redcards", "red cards"})
+                  if yh is not None and ya is not None:
+                      result["homeCards"] = yh + (rh or 0)
+                      result["awayCards"] = ya + (ra or 0)
+                  return result
               except Exception:
                   return {}
 
-          records = []
-
-          def collect_match_pairs(node, inherited_league="Football", inherited_ccode=""):
-              found = []
-              if isinstance(node, dict):
-                  # Direct league container: its matches list carries the league name.
-                  local_league = str(node.get("name") or inherited_league)
-                  local_ccode = str(node.get("ccode") or inherited_ccode).upper()
-                  matches = node.get("matches")
-                  if isinstance(matches, list):
-                      for item in matches:
-                          if isinstance(item, dict) and isinstance(item.get("home"), dict) and isinstance(item.get("away"), dict) and item.get("id") is not None:
-                              found.append((local_league, local_ccode, item))
-                  for key, value in node.items():
-                      if key == "matches":
+          def recent(team_id):
+              if not team_id:
+                  return None
+              try:
+                  data = get_json(
+                      "https://api.sofascore.com/api/v1/team/" + str(team_id) + "/events/last/0",
+                      15,
+                  )
+                  games = 0
+                  gf = ga = btts = over15 = over25 = 0
+                  for event in data.get("events") or []:
+                      live, finished = state(event)
+                      if not finished:
                           continue
-                      found.extend(collect_match_pairs(value, local_league, local_ccode))
-              elif isinstance(node, list):
-                  for value in node:
-                      found.extend(collect_match_pairs(value, inherited_league, inherited_ccode))
-              return found
-
-          league_items = collect_match_pairs(payload)
-          seen_ids = set()
-
-          for league_name, league_ccode, match in league_items:
-              try:
-                  match_id = int(match.get("id") or 0)
-              except (TypeError, ValueError):
-                  match_id = 0
-              if match_id <= 0 or match_id in seen_ids:
-                  continue
-              seen_ids.add(match_id)
-
-              home = match.get("home") or {}
-              away = match.get("away") or {}
-              status = match.get("status") or {}
-              utc_time = str(status.get("utcTime") or "")
-              dt = None
-              if utc_time:
-                  try:
-                      dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00")).astimezone(tz)
-                  except ValueError:
-                      pass
-
-              started = bool(status.get("started"))
-              finished = bool(status.get("finished"))
-              cancelled = bool(status.get("cancelled"))
-              live = started and not finished and not cancelled
-              score_home = home.get("score")
-              score_away = away.get("score")
-
-              records.append({
-                  "id": match_id,
-                  "home": str(home.get("name") or "Home"),
-                  "away": str(away.get("name") or "Away"),
-                  "time": dt.strftime("%H:%M") if dt else str(match.get("time") or "--:--"),
-                  "timestamp": int(dt.timestamp()) if dt else 0,
-                  "league": league_name,
-                  "status": "LIVE" if live else ("FT" if finished else ("CANCELLED" if cancelled else "NS")),
-                  "live": live,
-                  "scoreHome": as_int(score_home),
-                  "scoreAway": as_int(score_away),
-                  "stats": {},
-              })
-
-          records = [r for r in records if r["id"] > 0]
-          if not records:
-              raise SystemExit("FotMob returned a valid response but zero match records were found")
-
-          # Manteniamo i principali campionati/competizioni. Il ccode evita
-          # l'ambiguita di nomi come "Premier League" tra paesi diversi.
-          TOP_COMPETITIONS = {
-              "ENG": {"premier league"},
-              "ITA": {"serie a", "serie b"},
-              "ESP": {"laliga", "la liga", "laliga2"},
-              "GER": {"bundesliga", "2. bundesliga"},
-              "FRA": {"ligue 1", "ligue 2"},
-              "NED": {"eredivisie"},
-              "PRT": {"liga portugal"},
-              "BEL": {"belgian pro league"},
-              "TUR": {"super lig", "super league"},
-              "SCO": {"premiership"},
-              "BRA": {"série a", "serie a"},
-              "ARG": {"liga profesional", "primera división"},
-              "USA": {"major league soccer", "mls"},
-              "SAU": {"saudi pro league"},
-              "INT": {"champions league", "europa league", "conference league"},
-          }
-
-          def is_top_competition(ccode, name):
-              wanted = TOP_COMPETITIONS.get((ccode or "").upper())
-              if not wanted:
-                  return False
-              normalized = " ".join(str(name or "").lower().split())
-              return any(x in normalized for x in wanted)
-
-          top_ids = {
-              int(match.get("id") or 0)
-              for league_name, league_ccode, match in league_items
-              if is_top_competition(league_ccode, league_name)
-          }
-          records = [r for r in records if r["id"] in top_ids]
-          if not records:
-              raise SystemExit("Nessuna partita dei top campionati per oggi")
-
-
-              raise SystemExit("FotMob returned a valid response but zero match records were found")
-          records.sort(key=lambda x: (not x["live"], x["timestamp"], x["home"]))
-
-          # Tentiamo le statistiche su tutte le partite dei top campionati.
-          # Per le gare non ancora iniziate il provider puo restituire dati vuoti.
-          need_stats = records[:180]
-          with ThreadPoolExecutor(max_workers=8) as pool:
-              futures = {pool.submit(fetch_stats, r["id"]): r for r in need_stats}
-              for future in as_completed(futures):
-                  futures[future]["stats"] = future.result()
-
-          # ------------------------------------------------------------------
-          # Secondo livello statistiche: API-Football.
-          # FotMob resta la fonte primaria. Usiamo API-Football solo per le
-          # partite che FotMob non ha ancora valorizzato, così non sovrascriviamo
-          # mai dati già presenti.
-          # ------------------------------------------------------------------
-          api_football_key = os.environ.get("API_FOOTBALL_KEY", "").strip()
-
-          def norm_team(name):
-              import unicodedata
-              text = unicodedata.normalize("NFKD", str(name or ""))
-              text = "".join(ch for ch in text if not unicodedata.combining(ch))
-              return "".join(ch.lower() if ch.isalnum() else " " for ch in text).split()
-
-          def same_team(a, b):
-              aa, bb = norm_team(a), norm_team(b)
-              if not aa or not bb:
-                  return False
-              sa, sb = set(aa), set(bb)
-              return aa == bb or aa[:2] == bb[:2] or (len(sa & sb) >= max(1, min(len(sa), len(sb)) - 1))
-
-          def api_request(path):
-              req = urllib.request.Request(
-                  "https://v3.football.api-sports.io" + path,
-                  headers={
-                      "x-apisports-key": api_football_key,
-                      "Accept": "application/json",
-                      "User-Agent": "MatchAIProFeed/1.0",
-                  },
-              )
-              with urllib.request.urlopen(req, timeout=20) as r:
-                  return json.loads(r.read().decode("utf-8"))
-
-          def api_stat_value(block, wanted):
-              for item in block.get("statistics", []) if isinstance(block, dict) else []:
-                  if not isinstance(item, dict):
-                      continue
-                  if str(item.get("type") or "").strip().lower() != wanted.lower():
-                      continue
-                  value = item.get("value")
-                  parsed = as_int(value)
-                  return parsed
-              return None
-
-          def api_match_stats(fixture):
-              try:
-                  fixture_id = int(fixture.get("fixture", {}).get("id") or 0)
-                  teams = fixture.get("teams") or {}
-                  home_name = (teams.get("home") or {}).get("name") or ""
-                  away_name = (teams.get("away") or {}).get("name") or ""
-                  if fixture_id <= 0:
+                      hs = score_value(event.get("homeScore"))
+                      aw = score_value(event.get("awayScore"))
+                      if hs is None or aw is None:
+                          continue
+                      home_id = as_int((event.get("homeTeam") or {}).get("id"))
+                      if home_id == team_id:
+                          scored, conceded = hs, aw
+                      else:
+                          scored, conceded = aw, hs
+                      gf += scored
+                      ga += conceded
+                      btts += int(hs > 0 and aw > 0)
+                      over15 += int(hs + aw >= 2)
+                      over25 += int(hs + aw >= 3)
+                      games += 1
+                      if games >= 5:
+                          break
+                  if games == 0:
                       return None
-                  detail = api_request(f"/fixtures/statistics?fixture={fixture_id}")
-                  rows = detail.get("response") or []
-                  if len(rows) < 2:
-                      return None
-                  home = rows[0]
-                  away = rows[1]
-                  if not same_team(home_name, (home.get("team") or {}).get("name")):
-                      home, away = away, home
-                  stats = {}
-                  def api_pair(hk, ak, stat_type):
-                      h = api_stat_value(home, stat_type)
-                      a = api_stat_value(away, stat_type)
-                      if h is not None and a is not None:
-                          stats[hk], stats[ak] = h, a
-                  api_pair("homeShots", "awayShots", "Total Shots")
-                  api_pair("homeOn", "awayOn", "Shots on Goal")
-                  api_pair("homeCorners", "awayCorners", "Corner Kicks")
-                  api_pair("homeFouls", "awayFouls", "Fouls")
-                  yh, ya = api_stat_value(home, "Yellow Cards"), api_stat_value(away, "Yellow Cards")
-                  rh, ra = api_stat_value(home, "Red Cards"), api_stat_value(away, "Red Cards")
-                  if yh is not None and ya is not None:
-                      stats["homeCards"] = yh + (rh or 0)
-                      stats["awayCards"] = ya + (ra or 0)
-                  api_pair("homeThrow", "awayThrow", "Throw-ins")
-                  api_pair("homeSaves", "awaySaves", "Goalkeeper Saves")
-                  return stats
+                  return {
+                      "gf": gf / games,
+                      "ga": ga / games,
+                      "btts": btts / games,
+                      "over15": over15 / games,
+                      "over25": over25 / games,
+                  }
               except Exception:
                   return None
 
-          def has_any_stats(stats):
-              return isinstance(stats, dict) and any(as_int(v) is not None and as_int(v) > 0 for v in stats.values())
+          def form_points(items):
+              return sum({"W": 3, "D": 1, "L": 0}.get(str(x).upper(), 0) for x in (items or [])[-5:])
 
-          if api_football_key:
-              try:
-                  api_payload = api_request(f"/fixtures?date={iso_date}&timezone=Europe%2FZurich")
-                  fixtures = api_payload.get("response") or []
-                  missing = [r for r in records if not has_any_stats(r.get("stats")) and r.get("live")]
-                  # Per non sprecare chiamate sul piano API, aggiorniamo prima
-                  # le partite live. Le terminate/future restano candidate al
-                  # successivo ciclo del feed.
-                  candidates = []
-                  for fixture in fixtures:
-                      if not isinstance(fixture, dict):
-                          continue
-                      teams = fixture.get("teams") or {}
-                      hn = (teams.get("home") or {}).get("name") or ""
-                      an = (teams.get("away") or {}).get("name") or ""
-                      for record in missing:
-                          if same_team(record["home"], hn) and same_team(record["away"], an):
-                              candidates.append((record, fixture))
-                              break
-                  with ThreadPoolExecutor(max_workers=5) as pool:
-                      futures = {pool.submit(api_match_stats, fixture): record for record, fixture in candidates[:15]}
-                      for future in as_completed(futures):
-                          stats = future.result()
-                          if stats and has_any_stats(stats):
-                              futures[future]["stats"] = stats
-              except Exception as exc:
-                  print(f"API-Football fallback skipped: {exc}")
+          def proposals(record_item, form_data, home_recent, away_recent):
+              home_team = (form_data.get("homeTeam") or {}) if isinstance(form_data, dict) else {}
+              away_team = (form_data.get("awayTeam") or {}) if isinstance(form_data, dict) else {}
+              hp = form_points(home_team.get("form") or [])
+              ap = form_points(away_team.get("form") or [])
 
-          # ------------------------------------------------------------------
-          # Terzo livello: SofaScore. Nessuna chiave richiesta.
-          # Una sola chiamata per l'elenco giornaliero, poi statistiche solo
-          # sulle partite live senza dati. Anche qui non sovrascriviamo mai.
-          # ------------------------------------------------------------------
-          try:
-              scheduled_url = f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{iso_date}"
-              req = urllib.request.Request(scheduled_url, headers={"User-Agent": "MatchAIProFeed/1.0", "Accept": "application/json"})
-              with urllib.request.urlopen(req, timeout=20) as r:
-                  sofa_events = (json.loads(r.read().decode("utf-8")).get("events") or [])
-              sofa_map = {}
-              for event in sofa_events:
-                  if not isinstance(event, dict):
-                      continue
-                  home = (event.get("homeTeam") or {}).get("name") or ""
-                  away = (event.get("awayTeam") or {}).get("name") or ""
-                  if home and away:
-                      sofa_map[(tuple(norm_team(home)), tuple(norm_team(away)))] = event
-              missing = [r for r in records if not has_any_stats(r.get("stats")) and r.get("live")]
-              def sofa_stats(record):
-                  for (hn, an), event in sofa_map.items():
-                      if same_team(record["home"], " ".join(hn)) and same_team(record["away"], " ".join(an)):
-                          try:
-                              event_id = int(event.get("id") or 0)
-                              req = urllib.request.Request(
-                                  f"https://www.sofascore.com/api/v1/event/{event_id}/statistics",
-                                  headers={"User-Agent": "MatchAIProFeed/1.0", "Accept": "application/json"},
-                              )
-                              with urllib.request.urlopen(req, timeout=15) as r:
-                                  data = json.loads(r.read().decode("utf-8"))
-                              all_period = next((p for p in data.get("statistics", []) if isinstance(p, dict) and p.get("period") == "ALL"), None)
-                              if not all_period:
-                                  return None
-                              home_values, away_values = {}, {}
-                              for group in all_period.get("groups", []):
-                                  for item in (group.get("statisticsItems") or []):
-                                      name = str(item.get("name") or "").lower()
-                                      h, a = as_int(item.get("home")), as_int(item.get("away"))
-                                      if h is not None: home_values[name] = h
-                                      if a is not None: away_values[name] = a
-                              def sv(d, keys):
-                                  for key in keys:
-                                      if key in d: return d[key]
-                                  return None
-                              stats = {}
-                              def sofa_pair(hk, ak, keys):
-                                  h, a = sv(home_values, keys), sv(away_values, keys)
-                                  if h is not None and a is not None:
-                                      stats[hk], stats[ak] = h, a
-                              sofa_pair("homeShots", "awayShots", ["total shots on goal", "shots"])
-                              sofa_pair("homeOn", "awayOn", ["shots on target"])
-                              sofa_pair("homeCorners", "awayCorners", ["corner kicks"])
-                              sofa_pair("homeFouls", "awayFouls", ["fouls"])
-                              yh, ya = sv(home_values, ["yellow cards"]), sv(away_values, ["yellow cards"])
-                              rh, ra = sv(home_values, ["red cards"]), sv(away_values, ["red cards"])
-                              if yh is not None and ya is not None:
-                                  stats["homeCards"] = yh + (rh or 0)
-                                  stats["awayCards"] = ya + (ra or 0)
-                              sofa_pair("homeThrow", "awayThrow", ["throw-ins"])
-                              sofa_pair("homeSaves", "awaySaves", ["goalkeeper saves", "saves"])
-                              return stats
-                          except Exception:
-                              return None
-                  return None
-              with ThreadPoolExecutor(max_workers=5) as pool:
-                  futures = {pool.submit(sofa_stats, record): record for record in missing[:10]}
-                  for future in as_completed(futures):
-                      stats = future.result()
-                      if stats and has_any_stats(stats):
-                          futures[future]["stats"] = stats
-          except Exception as exc:
-              print(f"SofaScore fallback skipped: {exc}")
+              items = []
+              index = 50
 
-          # Pubblica i top campionati anche quando una gara non e ancora iniziata:
-          # l'app mostra "Statistiche in attesa" e non inventa alcun valore.
+              if hp >= ap + 3:
+                  items.append("1X • forma recente favorevole alla squadra di casa")
+                  index += 8
+              elif ap >= hp + 3:
+                  items.append("X2 • forma recente favorevole alla squadra ospite")
+                  index += 8
+              else:
+                  items.append("1X2 equilibrato • nessun vantaggio netto dalla forma")
+                  index += 3
 
-          out = {
-              "source": "FotMob",
-              "date": iso_date,
-              "updatedAt": datetime.now(tz).isoformat(),
+              if home_recent and away_recent:
+                  expected = (
+                      home_recent["gf"]
+                      + away_recent["ga"]
+                      + away_recent["gf"]
+                      + home_recent["ga"]
+                  ) / 2
+                  btts = (home_recent["btts"] + away_recent["btts"]) / 2
+                  over15 = (home_recent["over15"] + away_recent["over15"]) / 2
+                  over25 = (home_recent["over25"] + away_recent["over25"]) / 2
+
+                  if expected >= 2.35 or over15 >= 0.70:
+                      items.append("Over 1.5 • ritmo delle ultime 5 gare")
+                      index += 10
+                  if expected >= 2.90 and over25 >= 0.60:
+                      items.append("Over 2.5 • produzione offensiva recente sostenuta")
+                      index += 8
+                  elif btts >= 0.65:
+                      items.append("Goal/Goal • entrambe segnano con frequenza")
+                      index += 8
+                  elif expected <= 2.15 and over25 <= 0.40:
+                      items.append("Under 3.5 • profilo recente contenuto")
+                      index += 6
+
+              record_item["proposals"] = items[:3]
+              record_item["proposalScore"] = max(50, min(88, index))
+
+          events, source_url = load_events()
+          records = []
+          seen = set()
+
+          for event in events:
+              if not isinstance(event, dict):
+                  continue
+              item = record(event)
+              if item["id"] <= 0 or item["id"] in seen:
+                  continue
+              seen.add(item["id"])
+              records.append(item)
+
+          records.sort(
+              key=lambda x: (not x["live"], -x["priority"], x["timestamp"], x["home"])
+          )
+          records = records[:150]
+
+          candidates = [x for x in records if x["live"] or x["status"] == "FT"][:60]
+          with ThreadPoolExecutor(max_workers=10) as pool:
+              futures = {pool.submit(match_stats, x["id"]): x for x in candidates}
+              for future in as_completed(futures):
+                  futures[future]["stats"] = future.result()
+
+          upcoming = [
+              x for x in records
+              if x["status"] == "NS" and x["homeTeamId"] and x["awayTeamId"]
+          ][:25]
+
+          forms = {}
+          with ThreadPoolExecutor(max_workers=8) as pool:
+              def get_form(item):
+                  try:
+                      return get_json(
+                          "https://api.sofascore.com/api/v1/event/" + str(item["id"]) + "/pregame-form",
+                          12,
+                      )
+                  except Exception:
+                      return {}
+              futures = {pool.submit(get_form, x): x for x in upcoming}
+              for future in as_completed(futures):
+                  forms[futures[future]["id"]] = future.result()
+
+          team_ids = []
+          for item in upcoming:
+              for team_id in (item["homeTeamId"], item["awayTeamId"]):
+                  if team_id and team_id not in team_ids:
+                      team_ids.append(team_id)
+
+          recent_map = {}
+          with ThreadPoolExecutor(max_workers=8) as pool:
+              futures = {pool.submit(recent, team_id): team_id for team_id in team_ids[:50]}
+              for future in as_completed(futures):
+                  recent_map[futures[future]] = future.result()
+
+          for item in upcoming:
+              form_data = forms.get(item["id"], {})
+              home_recent = recent_map.get(item["homeTeamId"])
+              away_recent = recent_map.get(item["awayTeamId"])
+              if form_data or home_recent or away_recent:
+                  proposals(item, form_data, home_recent, away_recent)
+
+          output = {
+              "source": "SofaScore",
+              "sourceUrl": source_url,
+              "date": ISO_DATE,
+              "updatedAt": datetime.now(TZ).isoformat(),
               "matches": records,
           }
 
+          import os
           os.makedirs("data", exist_ok=True)
-          for path in (f"data/{iso_date}.json", "data/latest.json", "data/today.json"):
+          for path in (
+              "data/" + ISO_DATE + ".json",
+              "data/latest.json",
+              "data/today.json",
+          ):
               with open(path, "w", encoding="utf-8") as f:
-                  json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+                  json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
 
-          print(f"Feed ready: {len(records)} matches with stats; stats attempted for {len(need_stats)} matches.")
+          print(
+              "Feed ready: "
+              + str(len(records))
+              + " matches, stats="
+              + str(sum(bool(x.get("stats")) for x in records))
+              + ", proposals="
+              + str(sum(bool(x.get("proposals")) for x in records))
+              + ", source=SofaScore"
+          )
           PY
-
-      - name: Export optional statistics API key
-        env:
-          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-        run: |
-          if [ -n "$API_FOOTBALL_KEY" ]; then
-            echo "API-Football fallback enabled"
-          else
-            echo "API-Football fallback not configured; continuing with FotMob/SofaScore"
-          fi
 
       - name: Publish feed
         run: |
@@ -475,5 +368,5 @@ jobs:
             echo "No feed changes."
             exit 0
           fi
-          git commit -m "data: update football feed"
+          git commit -m "data: update SofaScore football feed"
           git push
