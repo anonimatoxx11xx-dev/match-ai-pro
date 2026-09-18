@@ -34,7 +34,7 @@ jobs:
           date = now.strftime("%Y%m%d")
           iso_date = now.date().isoformat()
 
-          url = f"https://www.fotmob.com/api/data/matches?date={date}&timezone=Europe%2FZurich"
+          url = f"https://www.fotmob.com/api/data/matches?date={date}&timezone=Europe%2FZurich&ccode3=ITA"
           headers = {
               "User-Agent": "Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0",
               "Accept": "application/json,text/plain,*/*",
@@ -105,27 +105,38 @@ jobs:
                   return {}
 
           records = []
-          source_matches = payload.get("matches")
-          if isinstance(source_matches, list):
-              flat = []
-              for match in source_matches:
-                  if not isinstance(match, dict):
-                      continue
-                  league_obj = match.get("league") or {}
-                  flat.append((str(league_obj.get("name") or match.get("leagueName") or "Football"), match))
-              league_items = flat
-          else:
-              league_items = []
-              for league in payload.get("leagues") or []:
-                  if not isinstance(league, dict):
-                      continue
-                  league_name = str(league.get("name") or "Football")
-                  for match in league.get("matches") or []:
-                      league_items.append((league_name, match))
+
+          def collect_match_pairs(node, inherited_league="Football"):
+              found = []
+              if isinstance(node, dict):
+                  # Direct league container: its matches list carries the league name.
+                  local_league = str(node.get("name") or inherited_league)
+                  matches = node.get("matches")
+                  if isinstance(matches, list):
+                      for item in matches:
+                          if isinstance(item, dict) and isinstance(item.get("home"), dict) and isinstance(item.get("away"), dict) and item.get("id") is not None:
+                              found.append((local_league, item))
+                  for key, value in node.items():
+                      if key == "matches":
+                          continue
+                      found.extend(collect_match_pairs(value, local_league))
+              elif isinstance(node, list):
+                  for value in node:
+                      found.extend(collect_match_pairs(value, inherited_league))
+              return found
+
+          league_items = collect_match_pairs(payload)
+          seen_ids = set()
 
           for league_name, match in league_items:
-              if not isinstance(match, dict):
+              try:
+                  match_id = int(match.get("id") or 0)
+              except (TypeError, ValueError):
+                  match_id = 0
+              if match_id <= 0 or match_id in seen_ids:
                   continue
+              seen_ids.add(match_id)
+
               home = match.get("home") or {}
               away = match.get("away") or {}
               status = match.get("status") or {}
@@ -145,7 +156,7 @@ jobs:
               score_away = away.get("score")
 
               records.append({
-                  "id": int(match.get("id") or 0),
+                  "id": match_id,
                   "home": str(home.get("name") or "Home"),
                   "away": str(away.get("name") or "Away"),
                   "time": dt.strftime("%H:%M") if dt else str(match.get("time") or "--:--"),
@@ -159,6 +170,8 @@ jobs:
               })
 
           records = [r for r in records if r["id"] > 0]
+          if not records:
+              raise SystemExit("FotMob returned a valid response but zero match records were found")
           records.sort(key=lambda x: (not x["live"], x["timestamp"], x["home"]))
 
           need_stats = [r for r in records if r["live"] or r["status"] == "FT"][:100]
