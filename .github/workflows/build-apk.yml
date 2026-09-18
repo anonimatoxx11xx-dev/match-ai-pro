@@ -23,6 +23,30 @@ jobs:
         run: flutter create --platforms=android --project-name match_ai_pro --org com.matchaipro .
       - name: Remove generated template test
         run: rm -f test/widget_test.dart
+      - name: Configure Android network permissions
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/src/main/AndroidManifest.xml")
+          text = path.read_text(encoding="utf-8")
+
+          permissions = (
+              '    <uses-permission android:name="android.permission.INTERNET" />\n'
+              '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n'
+          )
+
+          if "android.permission.INTERNET" not in text:
+              first_end = text.find(">")
+              if first_end < 0:
+                  raise SystemExit("AndroidManifest.xml: manifest tag not found")
+              text = text[:first_end + 1] + "\n" + permissions + text[first_end + 1:]
+
+          path.write_text(text, encoding="utf-8")
+          print("Android network permissions configured.")
+          PY
+
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - name: Verify football API secrets
