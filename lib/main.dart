@@ -93,12 +93,12 @@ class MatchData {
 
 
 class SofaScoreService {
-  static const base = 'https://www.sofascore.com/api/v1';
+  static const base = 'https://api.sofascore.com/api/v1';
   Future<List<MatchData>> today() async {
     final now = DateTime.now();
     final date = now.year.toString().padLeft(4, '0') + '-' + now.month.toString().padLeft(2, '0') + '-' + now.day.toString().padLeft(2, '0');
     final response = await http.get(Uri.parse('$base/sport/football/scheduled-events/$date'), headers: {'Accept':'application/json','User-Agent':'Mozilla/5.0'});
-    if (response.statusCode != 200) throw Exception('SofaScore HTTP \${response.statusCode}');
+    if (response.statusCode != 200) throw Exception('SofaScore HTTP ${response.statusCode}');
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     final raw = (json['events'] as List?) ?? [];
     final result = raw.whereType<Map<String,dynamic>>().where((e)=>e['homeTeam'] is Map && e['awayTeam'] is Map).map(_eventToMatch).toList();
@@ -121,8 +121,8 @@ class SofaScoreService {
       homeShots:0,awayShots:0,homeOn:0,awayOn:0,homeCorners:0,awayCorners:0,homeFouls:0,awayFouls:0,homeCards:0,awayCards:0,homeThrow:0,awayThrow:0,homeSaves:0,awaySaves:0);
   }
   Future<MatchData> details(MatchData match) async {
-    final response=await http.get(Uri.parse('$base/event/\${match.id}/statistics'),headers:{'Accept':'application/json','User-Agent':'Mozilla/5.0'});
-    if(response.statusCode!=200)throw Exception('SofaScore HTTP \${response.statusCode}');
+    final response=await http.get(Uri.parse('$base/event/${match.id}/statistics'),headers:{'Accept':'application/json','User-Agent':'Mozilla/5.0'});
+    if(response.statusCode!=200)throw Exception('SofaScore HTTP ${response.statusCode}');
     final json=jsonDecode(response.body) as Map<String,dynamic>;
     final periods=(json['statistics'] as List?)??[]; Map all={};
     for(final p in periods.whereType<Map>()){if(p['period']=='ALL'){all=p;break;}}
