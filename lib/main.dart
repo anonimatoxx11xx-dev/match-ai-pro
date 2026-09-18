@@ -990,78 +990,172 @@ class MatchDetail extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
         child: DraggableScrollableSheet(
           expand: false,
-          initialChildSize: .88,
-          minChildSize: .55,
-          maxChildSize: .96,
-          builder: (_, c) => ListView(
-            controller: c,
-            padding: const EdgeInsets.all(18),
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(match.home + ' — ' + match.away, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-                  ),
-                  if (match.live) const _Live(),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(match.league, style: const TextStyle(color: Colors.white54)),
-              if (match.scoreHome != null && match.scoreAway != null) ...[
-                const SizedBox(height: 12),
+          initialChildSize: .90,
+          minChildSize: .65,
+          maxChildSize: .98,
+          builder: (_, c) => Material(
+            color: const Color(0xFF07110F),
+            child: ListView(
+              controller: c,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+              children: [
                 Center(
-                  child: Text(
-                    match.scoreHome.toString() + ' - ' + match.scoreAway.toString(),
-                    style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900),
+                  child: Container(
+                    width: 42, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-              ],
-              const SizedBox(height: 18),
-              _row('Tiri', match.homeShots, match.awayShots, Icons.sports_soccer),
-              _row('Tiri in porta', match.homeOn, match.awayOn, Icons.gps_fixed),
-              _row('Corner', match.homeCorners, match.awayCorners, Icons.flag),
-              _row('Falli', match.homeFouls, match.awayFouls, Icons.front_hand),
-              _row('Cartellini', match.homeCards, match.awayCards, Icons.style),
-              _row('Rimesse', match.homeThrow, match.awayThrow, Icons.compare_arrows),
-              _row('Parate', match.homeSaves, match.awaySaves, Icons.pan_tool_alt),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('AI MATCH ANALYSIS', style: TextStyle(color: Color(0xFF00C896), fontWeight: FontWeight.w900)),
-                      const SizedBox(height: 8),
-                      Text(
-                        match.hasStats
-                            ? 'Analisi basata esclusivamente sulle statistiche ricevute dal provider per questa partita.'
-                            : 'Per questa partita non sono ancora disponibili statistiche dettagliate.',
-                        style: const TextStyle(height: 1.45),
+                const SizedBox(height: 18),
+                Text(match.league.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white45,
+                        fontWeight: FontWeight.w900)),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(match.home,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 19, fontWeight: FontWeight.w900)),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Column(
+                        children: [
+                          if (match.live) const _Live(),
+                          if (match.live) const SizedBox(height: 5),
+                          Text(
+                            match.scoreHome != null && match.scoreAway != null
+                                ? '${match.scoreHome} - ${match.scoreAway}'
+                                : match.time,
+                            style: const TextStyle(
+                                fontSize: 30, fontWeight: FontWeight.w900),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(match.away,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 19, fontWeight: FontWeight.w900)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111A18),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Row(
+                    children: const [
+                      Expanded(
+                        child: Text('CASA',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.white45,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                      SizedBox(width: 110, child: Text('STATISTICA',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: Colors.white45,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800))),
+                      Expanded(
+                        child: Text('TRASFERTA',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.white45,
+                                fontWeight: FontWeight.w800)),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 7),
+                _row('Tiri', match.homeShots, match.awayShots, Icons.sports_soccer),
+                _row('Tiri in porta', match.homeOn, match.awayOn, Icons.gps_fixed),
+                _row('Corner', match.homeCorners, match.awayCorners, Icons.flag),
+                _row('Falli', match.homeFouls, match.awayFouls, Icons.front_hand),
+                _row('Cartellini', match.homeCards, match.awayCards, Icons.style),
+                _row('Rimesse', match.homeThrow, match.awayThrow, Icons.compare_arrows),
+                _row('Parate', match.homeSaves, match.awaySaves, Icons.pan_tool_alt),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                        colors: [Color(0xFF10382E), Color(0xFF0D201B)]),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('AI MATCH ANALYSIS',
+                          style: TextStyle(
+                              color: Color(0xFF79E2C1),
+                              fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      Text(
+                        match.hasStats
+                            ? 'Analisi costruita esclusivamente sui dati reali disponibili per questa partita.'
+                            : 'Le statistiche dettagliate non sono ancora disponibili dal provider.',
+                        style: const TextStyle(height: 1.45)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
 
-  Widget _row(String n, int a, int b, IconData i) => Card(
-        margin: const EdgeInsets.only(bottom: 9),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Icon(i, size: 20, color: Colors.white54),
-              const SizedBox(width: 10),
-              Expanded(child: Text(n, style: const TextStyle(fontWeight: FontWeight.w700))),
-              Text(a.toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-              const SizedBox(width: 28),
-              Text(b.toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-            ],
-          ),
+  Widget _row(String n, int a, int b, IconData i) => Container(
+        margin: const EdgeInsets.only(bottom: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111A18),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Row(
+          children: [
+            Icon(i, size: 20, color: const Color(0xFF79E2C1)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(n,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            SizedBox(
+              width: 46,
+              child: Text(a.toString(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w900)),
+            ),
+            SizedBox(
+              width: 110,
+              child: Text('VS',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 9, color: Colors.white24)),
+            ),
+            SizedBox(
+              width: 46,
+              child: Text(b.toString(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w900)),
+            ),
+          ],
         ),
       );
 }
