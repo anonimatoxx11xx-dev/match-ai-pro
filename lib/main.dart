@@ -92,6 +92,111 @@ class MatchData {
 }
 
 
+class FotMobService {
+  static const base = 'https://www.fotmob.com/api';
+
+  Future<List<MatchData>> today() async {
+    final now = DateTime.now();
+    final date = now.year.toString().padLeft(4, '0') +
+        now.month.toString().padLeft(2, '0') +
+        now.day.toString().padLeft(2, '0');
+    final response = await http.get(
+      Uri.parse('$base/matches?date=$date'),
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0',
+      },
+    ).timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      throw Exception('FotMob HTTP '+response.statusCode.toString());
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final result = <MatchData>[];
+    for (final league in (json['leagues'] as List?) ?? []) {
+      if (league is! Map) continue;
+      final leagueName = (league['name'] ?? 'Football').toString();
+      for (final item in (league['matches'] as List?) ?? []) {
+        if (item is! Map) continue;
+        final home = (item['home'] as Map?) ?? {};
+        final away = (item['away'] as Map?) ?? {};
+        final status = (item['status'] as Map?) ?? {};
+        final utc = DateTime.tryParse((status['utcTime'] ?? '').toString());
+        final local = utc?.toLocal();
+        final started = status['started'] == true;
+        final finished = status['finished'] == true;
+        final cancelled = status['cancelled'] == true;
+        final live = started && !finished && !cancelled;
+        result.add(MatchData(
+          id: ((item['id'] as num?) ?? 0).toInt(),
+          home: (home['name'] ?? 'Home').toString(),
+          away: (away['name'] ?? 'Away').toString(),
+          time: local == null ? (item['time'] ?? '--:--').toString() :
+              local.hour.toString().padLeft(2, '0') + ':' +
+              local.minute.toString().padLeft(2, '0'),
+          league: leagueName,
+          status: live ? 'LIVE' : finished ? 'FT' : cancelled ? 'CANCELLED' : 'NS',
+          live: live,
+          scoreHome: (home['score'] as num?)?.toInt(),
+          scoreAway: (away['score'] as num?)?.toInt(),
+          homeShots: 0, awayShots: 0, homeOn: 0, awayOn: 0,
+          homeCorners: 0, awayCorners: 0, homeFouls: 0, awayFouls: 0,
+          homeCards: 0, awayCards: 0, homeThrow: 0, awayThrow: 0,
+          homeSaves: 0, awaySaves: 0,
+        ));
+      }
+    }
+    if (result.isEmpty) throw Exception('FotMob non ha restituito partite per oggi');
+    result.sort((a, b) {
+      if (a.live != b.live) return a.live ? -1 : 1;
+      return a.time.compareTo(b.time);
+    });
+    return result.take(150).toList();
+  }
+
+  Future<MatchData> details(MatchData match) async {
+    final response = await http.get(
+      Uri.parse('$base/matchDetails?matchId=${match.id}'),
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) MatchAIPro/1.0',
+      },
+    ).timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      throw Exception('FotMob HTTP '+response.statusCode.toString());
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = (json['content'] as Map?) ?? {};
+    final statsRoot = (content['stats'] as Map?) ?? {};
+    final periods = (statsRoot['Periods'] as Map?) ?? {};
+    final all = (periods['All'] as Map?) ?? {};
+    final items = (all['stats'] as List?) ?? [];
+    int pair(String title, bool home) {
+      final needle = title.toLowerCase();
+      for (final item in items.whereType<Map>()) {
+        final name = (item['title'] ?? '').toString().toLowerCase();
+        if (!name.contains(needle)) continue;
+        final values = item['stats'];
+        if (values is List && values.length >= 2) {
+          final value = values[home ? 0 : 1];
+          if (value is num) return value.toInt();
+          return int.tryParse(value.toString().replaceAll('%', '').trim()) ?? 0;
+        }
+      }
+      return 0;
+    }
+    return match.copyWith(
+      homeShots: pair('total shots', true), awayShots: pair('total shots', false),
+      homeOn: pair('shots on target', true), awayOn: pair('shots on target', false),
+      homeCorners: pair('corners', true), awayCorners: pair('corners', false),
+      homeFouls: pair('fouls', true), awayFouls: pair('fouls', false),
+      homeCards: pair('yellow cards', true) + pair('red cards', true),
+      awayCards: pair('yellow cards', false) + pair('red cards', false),
+      homeThrow: pair('throw-ins', true), awayThrow: pair('throw-ins', false),
+      homeSaves: pair('saves', true), awaySaves: pair('saves', false),
+    );
+  }
+}
+
 class GitHubFeedService {
   static const endpoints = [
     'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/',
@@ -428,6 +533,7 @@ class _HomePageState extends State<HomePage> {
   bool loading = true;
   String? error;
   List<MatchData> matches = [];
+  final fotMob = FotMobService();
   final sofaScore = SofaScoreService();
   final espn = EspnService();
   final api = const ApiFootballService();
@@ -446,6 +552,9 @@ class _HomePageState extends State<HomePage> {
     try {
       List<MatchData>? data;
       try { data = await GitHubFeedService().today(); } catch (e) { failures.add('Feed GitHub: ' + e.toString().replaceFirst('Exception: ', '')); }
+      if (data == null || data.isEmpty) {
+        try { data = await fotMob.today(); } catch (e) { failures.add('FotMob: ' + e.toString().replaceFirst('Exception: ', '')); }
+      }
       if (data == null || data.isEmpty) {
         try { data = await sofaScore.today(); } catch (e) { failures.add('SofaScore: ' + e.toString().replaceFirst('Exception: ', '')); }
       }
@@ -482,10 +591,12 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       try {
-        try { current = await sofaScore.details(m); } catch (_) {
+        try { current = await fotMob.details(m); } catch (_) {
+          try { current = await sofaScore.details(m); } catch (_) {
           if (apiFootballKey.isNotEmpty) {
             try { current = await api.details(m); } catch (_) { if (rapidApiKey.isNotEmpty) current = await rapidApi.details(m); }
           } else if (rapidApiKey.isNotEmpty) { current = await rapidApi.details(m); }
+          }
         }
         final index = matches.indexWhere((x) => x.id == m.id);
         if (index >= 0) setState(() => matches[index] = current);
