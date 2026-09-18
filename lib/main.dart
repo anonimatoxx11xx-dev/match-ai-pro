@@ -199,34 +199,33 @@ class FotMobService {
 
 class GitHubFeedService {
   static const endpoints = [
-    'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/',
-    'https://cdn.jsdelivr.net/gh/anonimatoxx11xx-dev/match-ai-pro@main/data/',
+    'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/today.json',
+    'https://cdn.jsdelivr.net/gh/anonimatoxx11xx-dev/match-ai-pro@main/data/today.json',
   ];
 
   Future<List<MatchData>> today() async {
-    final now = DateTime.now();
-    final date = now.year.toString().padLeft(4, '0') + '-' +
-        now.month.toString().padLeft(2, '0') + '-' +
-        now.day.toString().padLeft(2, '0');
     Object? lastError;
+    final cacheBust = DateTime.now().millisecondsSinceEpoch.toString();
 
     for (final endpoint in endpoints) {
       try {
-        final uri = Uri.parse('$endpoint$date.json');
+        final separator = endpoint.contains('?') ? '&' : '?';
+        final uri = Uri.parse('$endpoint$separator' + 'v=' + cacheBust);
         final response = await http
             .get(uri, headers: {'Accept': 'application/json'})
             .timeout(const Duration(seconds: 12));
         if (response.statusCode != 200) {
-          throw Exception('Feed HTTP '+response.statusCode.toString());
+          throw Exception('Feed HTTP ' + response.statusCode.toString());
         }
         final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final feedDate = (json['date'] ?? '').toString();
         final raw = (json['matches'] as List?) ?? [];
         final result = raw
             .whereType<Map<String, dynamic>>()
             .map(_decodeMatch)
             .toList();
         if (result.isEmpty) {
-          throw Exception('Feed non contiene partite per '+date);
+          throw Exception('Feed vuoto' + (feedDate.isEmpty ? '' : ' per ' + feedDate));
         }
         result.sort((a, b) {
           if (a.live != b.live) return a.live ? -1 : 1;
@@ -239,7 +238,7 @@ class GitHubFeedService {
     }
 
     throw Exception('Feed GitHub non raggiungibile' +
-        (lastError == null ? '' : ': '+lastError.toString()));
+        (lastError == null ? '' : ': ' + lastError.toString()));
   }
 
   MatchData _decodeMatch(Map<String, dynamic> m) {
@@ -547,115 +546,37 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _load() async {
-    setState(() { loading = true; error = null; });
-    final failures = <String>[];
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
-      List<MatchData>? data;
-      try { data = await GitHubFeedService().today(); } catch (e) { failures.add('Feed GitHub: ' + e.toString().replaceFirst('Exception: ', '')); }
-      if (data == null || data.isEmpty) {
-        try { data = await fotMob.today(); } catch (e) { failures.add('FotMob: ' + e.toString().replaceFirst('Exception: ', '')); }
-      }
-      if (data == null || data.isEmpty) {
-        try { data = await sofaScore.today(); } catch (e) { failures.add('SofaScore: ' + e.toString().replaceFirst('Exception: ', '')); }
-      }
-      if (data == null || data.isEmpty) {
-        try { data = await espn.today(); } catch (e) { failures.add('ESPN: ' + e.toString().replaceFirst('Exception: ', '')); }
-      }
-      if ((data == null || data.isEmpty) && apiFootballKey.isNotEmpty) {
-        try { data = await api.today(); } catch (e) { failures.add('API-Football: ' + e.toString().replaceFirst('Exception: ', '')); }
-      }
-      if ((data == null || data.isEmpty) && rapidApiKey.isNotEmpty) {
-        try { data = await rapidApi.today(); } catch (e) { failures.add('RapidAPI: ' + e.toString().replaceFirst('Exception: ', '')); }
-      }
-      if ((data == null || data.isEmpty) && footballDataKey.isNotEmpty) {
-        try { data = await footballData.today(); } catch (e) { failures.add('Football-Data: ' + e.toString().replaceFirst('Exception: ', '')); }
-      }
-      if (data == null) {
-        throw Exception(failures.join('\n\n'));
-      }
+      final data = await GitHubFeedService().today();
       if (!mounted) return;
-      setState(() { matches = data!; loading = false; });
+      setState(() {
+        matches = data;
+        loading = false;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() { loading = false; error = e.toString().replaceFirst('Exception: ', ''); });
+      setState(() {
+        loading = false;
+        error = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
   Future<void> _open(MatchData m) async {
-    MatchData current = m;
-    final canLoadStats = m.live || m.status == 'FT' || m.status == 'AET' || m.status == 'PEN';
-    if (!m.hasStats && canLoadStats) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()),
-      );
-      try {
-        try { current = await fotMob.details(m); } catch (_) {
-          try { current = await sofaScore.details(m); } catch (_) {
-          if (apiFootballKey.isNotEmpty) {
-            try { current = await api.details(m); } catch (_) { if (rapidApiKey.isNotEmpty) current = await rapidApi.details(m); }
-          } else if (rapidApiKey.isNotEmpty) { current = await rapidApi.details(m); }
-          }
-        }
-        final index = matches.indexWhere((x) => x.id == m.id);
-        if (index >= 0) setState(() => matches[index] = current);
-      } catch (_) {
-      } finally {
-        if (mounted) Navigator.of(context).pop();
-      }
-    }
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF07110F),
-      builder: (_) => MatchDetail(match: current),
+      builder: (_) => MatchDetail(match: m),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pages = [_matches(), _proposals(), _center()];
-    return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.sports_soccer, color: Color(0xFF00C896)),
-            SizedBox(width: 10),
-            Text('MATCH AI PRO', style: TextStyle(fontWeight: FontWeight.w900)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Aggiorna dati reali',
-          ),
-        ],
-      ),
-      body: pages[tab],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.calendar_today), label: 'Giornata'),
-          NavigationDestination(icon: Icon(Icons.auto_awesome), label: 'Proposte IA'),
-          NavigationDestination(icon: Icon(Icons.psychology), label: 'AI Center'),
-        ],
-      ),
-    );
-  }
-
-  Widget _header(String title, String sub) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF12382E), Color(0xFF0D201B)],
-          ),
-        ),
-        child: Column(
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
@@ -712,7 +633,7 @@ class _HomePageState extends State<HomePage> {
         _header('PARTITE DELLA GIORNATA', 'Dati reali aggiornati dal provider'),
         const SizedBox(height: 8),
         const Text(
-          'Tocca una partita live o terminata per caricare le statistiche reali.',
+          'Dati e statistiche arrivano dal feed remoto aggiornato automaticamente.',
           style: TextStyle(color: Colors.white54),
         ),
         const SizedBox(height: 14),
@@ -876,7 +797,7 @@ class _HomePageState extends State<HomePage> {
 
   String _analysis(MatchData m) {
     if (!m.hasStats) {
-      return 'Partita reale. Le statistiche dettagliate vengono richieste quando apri il match, così evitiamo chiamate inutili e consumi eccessivi del piano gratuito.';
+      return 'Partita reale. Le statistiche dettagliate vengono aggiornate automaticamente dal feed remoto quando disponibili.';
     }
     final shots = m.homeShots + m.awayShots;
     final corners = m.homeCorners + m.awayCorners;
