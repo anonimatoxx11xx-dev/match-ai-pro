@@ -606,6 +606,48 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final pages = [_matches(), _proposals(), _center()];
+    return Scaffold(
+      appBar: AppBar(
+        title: const Row(
+          children: [
+            Icon(Icons.sports_soccer, color: Color(0xFF00C896)),
+            SizedBox(width: 10),
+            Text('MATCH AI PRO', style: TextStyle(fontWeight: FontWeight.w900)),
+          ],
+        ),
+        actions: [
+          IconButton(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Aggiorna dati reali',
+          ),
+        ],
+      ),
+      body: pages[tab],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: tab,
+        onDestinationSelected: (i) => setState(() => tab = i),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today),
+            label: 'Giornata',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.auto_awesome),
+            label: 'Proposte IA',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.psychology),
+            label: 'AI Center',
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _header(String title, String sub) => Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
