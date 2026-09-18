@@ -130,29 +130,30 @@ jobs:
 
           records = []
 
-          def collect_match_pairs(node, inherited_league="Football"):
+          def collect_match_pairs(node, inherited_league="Football", inherited_ccode=""):
               found = []
               if isinstance(node, dict):
                   # Direct league container: its matches list carries the league name.
                   local_league = str(node.get("name") or inherited_league)
+                  local_ccode = str(node.get("ccode") or inherited_ccode).upper()
                   matches = node.get("matches")
                   if isinstance(matches, list):
                       for item in matches:
                           if isinstance(item, dict) and isinstance(item.get("home"), dict) and isinstance(item.get("away"), dict) and item.get("id") is not None:
-                              found.append((local_league, item))
+                              found.append((local_league, local_ccode, item))
                   for key, value in node.items():
                       if key == "matches":
                           continue
-                      found.extend(collect_match_pairs(value, local_league))
+                      found.extend(collect_match_pairs(value, local_league, local_ccode))
               elif isinstance(node, list):
                   for value in node:
-                      found.extend(collect_match_pairs(value, inherited_league))
+                      found.extend(collect_match_pairs(value, inherited_league, inherited_ccode))
               return found
 
           league_items = collect_match_pairs(payload)
           seen_ids = set()
 
-          for league_name, match in league_items:
+          for league_name, league_ccode, match in league_items:
               try:
                   match_id = int(match.get("id") or 0)
               except (TypeError, ValueError):
@@ -196,19 +197,55 @@ jobs:
           records = [r for r in records if r["id"] > 0]
           if not records:
               raise SystemExit("FotMob returned a valid response but zero match records were found")
+
+          # Manteniamo i principali campionati/competizioni. Il ccode evita
+          # l'ambiguita di nomi come "Premier League" tra paesi diversi.
+          TOP_COMPETITIONS = {
+              "ENG": {"premier league"},
+              "ITA": {"serie a", "serie b"},
+              "ESP": {"laliga", "la liga", "laliga2"},
+              "GER": {"bundesliga", "2. bundesliga"},
+              "FRA": {"ligue 1", "ligue 2"},
+              "NED": {"eredivisie"},
+              "PRT": {"liga portugal"},
+              "BEL": {"belgian pro league"},
+              "TUR": {"super lig", "super league"},
+              "SCO": {"premiership"},
+              "BRA": {"série a", "serie a"},
+              "ARG": {"liga profesional", "primera división"},
+              "USA": {"major league soccer", "mls"},
+              "SAU": {"saudi pro league"},
+              "INT": {"champions league", "europa league", "conference league"},
+          }
+
+          def is_top_competition(ccode, name):
+              wanted = TOP_COMPETITIONS.get((ccode or "").upper())
+              if not wanted:
+                  return False
+              normalized = " ".join(str(name or "").lower().split())
+              return any(x in normalized for x in wanted)
+
+          top_ids = {
+              int(match.get("id") or 0)
+              for league_name, league_ccode, match in league_items
+              if is_top_competition(league_ccode, league_name)
+          }
+          records = [r for r in records if r["id"] in top_ids]
+          if not records:
+              raise SystemExit("Nessuna partita dei top campionati per oggi")
+
+
+              raise SystemExit("FotMob returned a valid response but zero match records were found")
           records.sort(key=lambda x: (not x["live"], x["timestamp"], x["home"]))
 
-          need_stats = [r for r in records if r["live"] or r["status"] == "FT"][:100]
+          # Tentiamo le statistiche su tutte le partite dei top campionati.\n          # Per le gare non ancora iniziate il provider puo restituire dati vuoti.\n          need_stats = records[:180]
           with ThreadPoolExecutor(max_workers=8) as pool:
               futures = {pool.submit(fetch_stats, r["id"]): r for r in need_stats}
               for future in as_completed(futures):
                   futures[future]["stats"] = future.result()
 
-          # Pubblica solo partite per cui FotMob ha restituito dati statistici.
-          # In questo modo l'app non mostra competizioni/partite che non possiamo
-          # alimentare con tiri, corner, falli, cartellini e parate.
-          records_with_stats = [r for r in records if isinstance(r.get("stats"), dict) and r["stats"]]
-          records = records_with_stats
+          # Pubblica i top campionati anche quando una gara non e ancora iniziata:
+          # l'app mostra "Statistiche in attesa" e non inventa alcun valore.
 
           out = {
               "source": "FotMob",
