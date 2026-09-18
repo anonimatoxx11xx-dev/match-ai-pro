@@ -23,11 +23,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Fetch SofaScore football feed
+        env:
+          APP_RAPIDAPI_KEY: ${{ secrets.APP_RAPIDAPI_KEY }}
         shell: bash
         run: |
           python3 -m pip install -q curl_cffi
           python3 <<'PY'
           import json
+          import os
           import re
           from curl_cffi import requests
           from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -125,6 +128,30 @@ jobs:
                           return events, url
                   except Exception as exc:
                       last_error = exc
+
+              rapid_key = os.environ.get("APP_RAPIDAPI_KEY", "")
+              if rapid_key:
+                  try:
+                      url = f"https://sofascore-api4.p.rapidapi.com/api/v1/schedule/sport/football/{ISO_DATE}"
+                      response = session.get(
+                          url,
+                          headers={
+                              "x-rapidapi-key": rapid_key,
+                              "x-rapidapi-host": "sofascore-api4.p.rapidapi.com",
+                              "Accept": "application/json",
+                          },
+                          impersonate="chrome",
+                          timeout=25,
+                      )
+                      response.raise_for_status()
+                      data = response.json()
+                      events = data.get("events") or (data.get("data") or {}).get("events") or []
+                      if events:
+                          return events, url
+                      last_error = RuntimeError("RapidAPI SofaScore returned no events")
+                  except Exception as exc:
+                      last_error = exc
+
               raise RuntimeError("SofaScore scheduled events unavailable: " + str(last_error))
 
           def stat_num(item, side):
