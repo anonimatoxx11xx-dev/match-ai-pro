@@ -271,6 +271,7 @@ jobs:
               try:
                   response = requests.get(
                       "https://v3.football.api-sports.io" + path,
+                      params=params or {},
                       headers={"x-apisports-key": key, "Accept": "application/json"},
                       timeout=18,
                   )
