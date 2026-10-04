@@ -116,6 +116,58 @@ jobs:
                   "preMatchStats": [],
               }
 
+          def espn_record(event):
+              competitions = event.get("competitions") or []
+              comp = competitions[0] if competitions else {}
+              competitors = comp.get("competitors") or []
+              home = next((x for x in competitors if x.get("homeAway") == "home"), competitors[0] if competitors else {})
+              away = next((x for x in competitors if x.get("homeAway") == "away"), competitors[1] if len(competitors) > 1 else {})
+              home_team = home.get("team") or {}
+              away_team = away.get("team") or {}
+              league = ((event.get("league") or {}).get("name") or ((event.get("season") or {}).get("displayName")) or "Football")
+              date_value = str(event.get("date") or "")
+              timestamp = 0
+              if date_value:
+                  try:
+                      timestamp = int(datetime.fromisoformat(date_value.replace("Z", "+00:00")).timestamp())
+                  except Exception:
+                      timestamp = 0
+              status_obj = event.get("status") or {}
+              status_type = status_obj.get("type") or {}
+              state_name = str(status_type.get("state") or "").lower()
+              completed = bool(status_type.get("completed")) or state_name in {"post", "final"}
+              live = state_name in {"in", "live"}
+              status = "LIVE" if live else ("FT" if completed else "NS")
+              score_home = score_value(home.get("score")) if completed or live else None
+              score_away = score_value(away.get("score")) if completed or live else None
+              return {
+                  "id": as_int(event.get("id")) or 0,
+                  "home": str(home_team.get("displayName") or home_team.get("name") or "Home"),
+                  "away": str(away_team.get("displayName") or away_team.get("name") or "Away"),
+                  "time": datetime.fromtimestamp(timestamp, TZ).strftime("%H:%M") if timestamp else "--:--",
+                  "timestamp": timestamp,
+                  "league": str(league),
+                  "status": status,
+                  "live": live,
+                  "scoreHome": score_home,
+                  "scoreAway": score_away,
+                  "homeTeamId": None,
+                  "awayTeamId": None,
+                  "priority": 1,
+                  "stats": {},
+                  "proposals": [],
+                  "proposalScore": 0,
+                  "preMatchStats": [],
+              }
+
+          def load_espn_events():
+              url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates={ISO_DATE.replace('-', '')}&limit=1000"
+              data = get_json(url, 25)
+              events = data.get("events") or []
+              if not events:
+                  raise RuntimeError("ESPN returned no events")
+              return events, url
+
           def load_events():
               urls = [
                   f"https://api.sofascore.app/api/v1/sport/football/scheduled-events/{ISO_DATE}",
@@ -127,7 +179,7 @@ jobs:
                       data = get_json(url, 25)
                       events = data.get("events") or []
                       if events:
-                          return events, url
+                          return events, url, True, True, True
                   except Exception as exc:
                       last_error = exc
 
@@ -154,7 +206,13 @@ jobs:
                   except Exception as exc:
                       last_error = exc
 
-              raise RuntimeError("SofaScore scheduled events unavailable: " + str(last_error))
+              try:
+                  events, espn_url = load_espn_events()
+                  print("SofaScore unavailable; using ESPN scoreboard fallback:", len(events), "events")
+                  return events, espn_url, False
+              except Exception as exc:
+                  last_error = exc
+              raise RuntimeError("SofaScore and ESPN scheduled events unavailable: " + str(last_error))
 
           def stat_num(item, side):
               parsed = as_int(item.get(side + "Value"))
@@ -466,15 +524,14 @@ jobs:
 
           source_live = False
           try:
-              events, source_url = load_events()
-              source_live = True
+              events, source_url, source_live = load_events()
               records = []
               seen = set()
 
               for event in events:
                   if not isinstance(event, dict):
                       continue
-                  item = record(event)
+                  item = record(event) if source_live else espn_record(event)
                   if item["id"] <= 0 or item["id"] in seen:
                       continue
                   seen.add(item["id"])
@@ -490,10 +547,10 @@ jobs:
                   records = []
                   source_url = "https://api.sofascore.com/api/v1"
 
-          # If SofaScore is blocked and we are serving the cached calendar, never reuse
+          # If both live providers are unavailable and we are serving the cached calendar, never reuse
           # old proposals or confidence scores as if they were fresh analysis.
           # Stale predictions are worse than showing no prediction.
-          if not source_live:
+          if not source_live and "espn.com" not in str(source_url):
               print("DEGRADED FEED: clearing cached pre-match proposals until SofaScore is reachable.")
               for cached_item in records:
                   if isinstance(cached_item, dict) and cached_item.get("status") == "NS":
@@ -599,7 +656,7 @@ jobs:
           enrich_with_api_football(records)
 
           output = {
-              "source": "SofaScore",
+              "source": "SofaScore" if source_live else "ESPN fallback",
               "sourceUrl": source_url,
               "date": ISO_DATE,
               "updatedAt": datetime.now(TZ).isoformat(),
