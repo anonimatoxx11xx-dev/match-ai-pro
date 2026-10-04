@@ -125,7 +125,7 @@ jobs:
               home_team = home.get("team") or {}
               away_team = away.get("team") or {}
               competition = (comp.get("league") or comp.get("competition") or event.get("league") or {})
-              league = (competition.get("name") if isinstance(competition, dict) else None) or ((event.get("season") or {}).get("displayName")) or "Football"
+              league = event.get("_match_ai_league") or ((competition.get("name") if isinstance(competition, dict) else None)) or ((event.get("season") or {}).get("displayName")) or "Football"
               date_value = str(event.get("date") or "")
               timestamp = 0
               if date_value:
@@ -161,13 +161,72 @@ jobs:
                   "preMatchStats": [],
               }
 
+          # ESPN exposes separate soccer league scoreboards. Use a curated
+          # set of top competitions instead of the global "all" feed, which also
+          # contains low-priority college/minor competitions.
+          TOP_ESPN_LEAGUES = [
+              ("eng.1", "Premier League"),
+              ("esp.1", "La Liga"),
+              ("ita.1", "Serie A"),
+              ("ger.1", "Bundesliga"),
+              ("fra.1", "Ligue 1"),
+              ("ned.1", "Eredivisie"),
+              ("por.1", "Primeira Liga"),
+              ("bel.1", "Belgian Pro League"),
+              ("tur.1", "Turkish Super Lig"),
+              ("sco.1", "Scottish Premiership"),
+              ("sui.1", "Swiss Super League"),
+              ("eng.2", "Championship"),
+              ("usa.1", "MLS"),
+              ("mex.1", "Liga MX"),
+              ("bra.1", "Brasileirão"),
+              ("arg.1", "Argentina Primera"),
+              ("uefa.champions", "UEFA Champions League"),
+              ("uefa.europa", "UEFA Europa League"),
+              ("uefa.europa.conf", "UEFA Conference League"),
+              ("uefa.wchampions", "UEFA Women's Champions League"),
+          ]
+
           def load_espn_events():
-              url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates={ISO_DATE.replace('-', '')}&limit=1000"
-              data = get_json(url, 25)
-              events = data.get("events") or []
-              if not events:
-                  raise RuntimeError("ESPN returned no events")
-              return events, url
+              date_key = ISO_DATE.replace("-", "")
+              collected = []
+              urls = []
+              def fetch_league(slug, label):
+                  url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard?dates={date_key}&limit=1000"
+                  try:
+                      data = get_json(url, 25)
+                      events = data.get("events") or []
+                      for event in events:
+                          if isinstance(event, dict):
+                              event["_match_ai_league"] = label
+                              event["_match_ai_league_slug"] = slug
+                      return events, url
+                  except Exception as exc:
+                      print("ESPN league failed:", slug, exc)
+                      return [], url
+
+              with ThreadPoolExecutor(max_workers=8) as pool:
+                  futures = [pool.submit(fetch_league, slug, label) for slug, label in TOP_ESPN_LEAGUES]
+                  for future in as_completed(futures):
+                      events, url = future.result()
+                      collected.extend(events)
+                      if events:
+                          urls.append(url)
+
+              deduped = []
+              seen_ids = set()
+              for event in collected:
+                  event_id = str(event.get("id") or "")
+                  if not event_id or event_id in seen_ids:
+                      continue
+                  seen_ids.add(event_id)
+                  deduped.append(event)
+
+              if not deduped:
+                  raise RuntimeError("ESPN top-league scoreboards returned no events")
+              source_url = urls[0] if urls else "https://site.api.espn.com/apis/site/v2/sports/soccer"
+              print("ESPN curated top-league fallback:", len(deduped), "events")
+              return deduped, source_url
 
           def espn_proposal(item, event):
               if item.get("status") != "NS":
