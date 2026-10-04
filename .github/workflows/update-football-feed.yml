@@ -233,6 +233,23 @@ jobs:
                           favorite = away_name
               if not favorite:
                   return
+
+              # Soccer odds feeds sometimes expose only "TEAM -160" in
+              # details. Recover that American moneyline when the nested
+              # moneyLine field is absent.
+              if details:
+                  ml_match = re.search(r"([+-]?\d+)\s*$", details)
+                  if ml_match:
+                      try:
+                          details_ml = float(ml_match.group(1))
+                          if abs(details_ml) >= 20:
+                              if favorite == home_name:
+                                  home_odds.setdefault("moneyLine", details_ml)
+                              else:
+                                  away_odds.setdefault("moneyLine", details_ml)
+                      except Exception:
+                          pass
+
               # Market-only signal: derive the index from the actual
               # moneyline first, then add a small handicap/total bonus.
               # Never treat an American moneyline as a handicap.
