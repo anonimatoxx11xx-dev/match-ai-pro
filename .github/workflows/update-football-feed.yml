@@ -872,14 +872,40 @@ jobs:
 
       - name: Publish feed
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/
-          if git diff --cached --quiet; then
-            echo "No feed changes."
-            exit 0
-          fi
-          git commit -m "data: update SofaScore football feed"
-          git fetch origin main
-          git rebase origin/main
-          git push
+
+          # Save the freshly generated feed before syncing with main. The build
+          # and feed workflows can run at the same time, so rebasing a commit
+          # that contains data/*.json is prone to conflicts.
+          rm -rf /tmp/match-ai-feed
+          mkdir -p /tmp/match-ai-feed
+          cp data/*.json /tmp/match-ai-feed/
+
+          for attempt in 1 2 3; do
+            echo "Publish attempt $attempt"
+            git fetch origin main
+            git reset --hard origin/main
+
+            cp /tmp/match-ai-feed/*.json data/
+            git add data/
+
+            if git diff --cached --quiet; then
+              echo "No feed changes."
+              exit 0
+            fi
+
+            git commit -m "data: update football feed"
+
+            if git push origin HEAD:main; then
+              echo "Feed published successfully."
+              exit 0
+            fi
+
+            echo "Push raced with another main update; retrying."
+            git reset --hard origin/main
+          done
+
+          echo "Unable to publish feed after 3 attempts."
+          exit 1
