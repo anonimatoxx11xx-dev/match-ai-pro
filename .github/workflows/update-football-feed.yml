@@ -624,4 +624,6 @@ jobs:
             exit 0
           fi
           git commit -m "data: update SofaScore football feed"
+          git fetch origin main
+          git rebase origin/main
           git push
