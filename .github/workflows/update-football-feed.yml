@@ -124,7 +124,8 @@ jobs:
               away = next((x for x in competitors if x.get("homeAway") == "away"), competitors[1] if len(competitors) > 1 else {})
               home_team = home.get("team") or {}
               away_team = away.get("team") or {}
-              league = ((event.get("league") or {}).get("name") or ((event.get("season") or {}).get("displayName")) or "Football")
+              competition = (comp.get("league") or comp.get("competition") or event.get("league") or {})
+              league = (competition.get("name") if isinstance(competition, dict) else None) or ((event.get("season") or {}).get("displayName")) or "Football"
               date_value = str(event.get("date") or "")
               timestamp = 0
               if date_value:
@@ -151,8 +152,8 @@ jobs:
                   "live": live,
                   "scoreHome": score_home,
                   "scoreAway": score_away,
-                  "homeTeamId": None,
-                  "awayTeamId": None,
+                  "homeTeamId": as_int(home_team.get("id") or home.get("id")),
+                  "awayTeamId": as_int(away_team.get("id") or away.get("id")),
                   "priority": 1,
                   "stats": {},
                   "proposals": [],
@@ -795,7 +796,7 @@ jobs:
               + str(sum(bool(x.get("stats")) for x in records))
               + ", proposals="
               + str(sum(bool(x.get("proposals")) for x in records))
-              + ", source=SofaScore"
+              + ", source=" + ("SofaScore" if source_live else "ESPN fallback")
           )
           PY
 
