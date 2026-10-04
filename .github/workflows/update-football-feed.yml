@@ -202,12 +202,17 @@ jobs:
               # details string (for example "AVL -0.5"). Recover the spread
               # from that string instead of assigning every signal the same 62.
               if spread is None and details:
-                  spread_match = re.search(r"([+-]?\d+(?:\.\d+)?)\s*$", details)
+                  # Only recover a handicap such as -1.5 from details.
+                  # Do not mistake a moneyline such as -160 or +155 for a spread.
+                  spread_match = re.search(r"([+-]?\d+\.\d+)\s*$", details)
                   if spread_match:
                       try:
-                          spread = float(spread_match.group(1))
+                          candidate = float(spread_match.group(1))
+                          spread = candidate if abs(candidate) <= 5.0 else None
                       except Exception:
                           spread = None
+              if spread is not None and abs(spread) > 5.0:
+                  spread = None
 
               if not favorite and details:
                   parts = details.rsplit(" ", 1)
@@ -219,22 +224,23 @@ jobs:
                           favorite = away_name
               if not favorite:
                   return
-              strength = 62
+              # Market-only signal: derive the index from the actual
+              # moneyline first, then add a small handicap/total bonus.
+              # Never treat an American moneyline as a handicap.
+              strength = 54
               moneyline = home_odds.get("moneyLine") if favorite == home_name else away_odds.get("moneyLine")
               try:
                   ml = float(moneyline) if moneyline is not None else None
-                  implied = ((-ml) / ((-ml) + 100)) if ml < 0 else (100 / (ml + 100))
-                  strength = 50 + int(max(0.0, min(0.45, implied - 0.50)) * 80)
+                  if ml is not None:
+                      implied = ((-ml) / ((-ml) + 100)) if ml < 0 else (100 / (ml + 100))
+                      strength = 50 + int(max(0.0, min(0.35, implied - 0.50)) * 100)
               except Exception:
                   pass
               if spread is not None:
-                  strength += min(14, int(abs(spread) * 4))
+                  strength += min(10, int(abs(spread) * 3))
               if over_under is not None and (over_under <= 2.5 or over_under >= 3.0):
-                  strength += 3
-              if strength < 50:
-                  strength = 50
-              if strength > 88:
-                  strength = 88
+                  strength += 2
+              strength = max(50, min(88, strength))
               item["proposals"] = ["Winner • " + favorite + " (market signal)"]
               if over_under is not None and over_under <= 3.0:
                   item["proposals"].append("Under 3.5 • linea " + str(over_under))
