@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 
 void main() => runApp(const MatchAIPro());
@@ -213,12 +214,12 @@ class Dashboard extends StatefulWidget { const Dashboard({super.key}); @override
 class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
   final service=MatchService();
   late final AnimationController pulse=AnimationController(vsync:this,duration:const Duration(seconds:3))..repeat(reverse:true);
-  List<Match> matches=[]; bool loading=true; String? error; int tab=0;
-  @override void initState(){super.initState();load();}
-  @override void dispose(){pulse.dispose();super.dispose();}
+  List<Match> matches=[]; bool loading=true; String? error; int tab=0; Timer? refreshTimer;
+  @override void initState(){super.initState();load(); refreshTimer=Timer.periodic(const Duration(minutes:1), (_) => load());}
+  @override void dispose(){refreshTimer?.cancel(); pulse.dispose(); super.dispose();}
   Future<void> load() async { if(mounted)setState(()=>loading=true); try{final m=await service.today(); if(!mounted)return; setState((){matches=m;error=null;});}catch(_){ if(!mounted)return; setState(()=>error=null); }finally{if(mounted)setState(()=>loading=false);} }
   @override Widget build(BuildContext context){
-    final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=50).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=70).take(6).toList(); final medium=signals.where((m)=>m.confidence<70).take(6).toList(); final strong=signals.where((m)=>m.confidence>=70).toList();
+    final isMarketFeed=matches.isNotEmpty && matches.first.source=='ESPN fallback'; final strongCutoff=isMarketFeed?80:70; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=50).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
     return Scaffold(
       body: Stack(children:[
         const _Background(),
@@ -261,7 +262,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         ])
       ])
     )),
-    _title('🔥 Proposte IA','Solo match con proposta'),
+    _title(isMarketFeed?'📈 Segnali mercato':'🔥 Proposte IA',isMarketFeed?'Solo segnali con evidenza':'Solo match con proposta'),
     ...top.map((m)=>_card(m)),
     if(top.isEmpty && medium.isNotEmpty) ...[
       _title('📊 Segnali monitorati','Confidenza media · non forti'),
@@ -288,7 +289,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         _metric('Dati partita',total==0?0:withData/total),
         _metric('Feed aggiornato',freshness),
         const SizedBox(height:12),
-        Text(source=='ESPN fallback'?'Il feed corrente usa segnali di mercato ESPN. Non vengono presentati come statistiche SofaScore.':'Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
+        Text(source=='ESPN fallback'?'Il feed corrente usa segnali di mercato ESPN. Il livello FORTE richiede un indice ≥80 e non equivale a una previsione statistica validata.':'Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
       ...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
