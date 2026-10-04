@@ -232,9 +232,9 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
       padding:const EdgeInsets.all(20),decoration:BoxDecoration(
         borderRadius:BorderRadius.circular(28),
-        gradient:LinearGradient(colors:[const Color(0xFF171A30).withOpacity(.96),const Color(0xFF0E1525).withOpacity(.96)]),
-        border:Border.all(color:const Color(0xFF8B7CFF).withOpacity(.22)),
-        boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withOpacity(.08+pulse.value*.08),blurRadius:35,spreadRadius:2)]
+        gradient:LinearGradient(colors:[const Color(0xFF171A30).withValues(alpha:.96),const Color(0xFF0E1525).withValues(alpha:.96)]),
+        border:Border.all(color:const Color(0xFF8B7CFF).withValues(alpha:.22)),
+        boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.08+pulse.value*.08),blurRadius:35,spreadRadius:2)]
       ),
       child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         const Text('AI SCANNER',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:2)),
@@ -296,12 +296,12 @@ class _Detail extends StatelessWidget {
     ])),const SizedBox(height:12),Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di vincita.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4))
   ]));
   Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
-  Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withOpacity(.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
+  Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withValues(alpha:.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
 }
 
 class _Background extends StatelessWidget { const _Background(); @override Widget build(BuildContext c)=>IgnorePointer(child:Stack(children:[
-  Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withOpacity(.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withOpacity(.12),blurRadius:90,spreadRadius:25)]))),
-  Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withOpacity(.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withOpacity(.10),blurRadius:80,spreadRadius:20)]))),
+  Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
+  Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
 ]));}
 class _NoData extends StatelessWidget {
   final VoidCallback retry;
@@ -317,4 +317,4 @@ class _NoData extends StatelessWidget {
     FilledButton.icon(onPressed:retry,icon:const Icon(Icons.refresh_rounded),label:const Text('Aggiorna')),
   ])));
 }
-class _Error extends StatelessWidget { final String error; final VoidCallback retry; const _Error({required this.error,required this.retry}); @override Widget build(BuildContext c)=>Center(child:Padding(padding:const EdgeInsets.all(25),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:48,color:Color(0xFFFF7185)),const SizedBox(height:12),const Text('Dati non disponibili',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(error,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11)),const SizedBox(height:16),FilledButton.icon(onPressed:retry,icon:const Icon(Icons.refresh),label:const Text('Riprova'))])));}
+
