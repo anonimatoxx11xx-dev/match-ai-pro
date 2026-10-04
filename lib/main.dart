@@ -231,7 +231,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
             IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded,color:Color(0xFFAAA1FF)))
           ])),
           Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : matches.isEmpty ? _NoData(retry:load) : IndexedStack(index:tab,children:[
-            _home(top, medium, signals, strong),
+            _home(top, medium, signals, strong, isMarketFeed),
             _all(),
             _ai(signals, strong),
           ])),
@@ -240,7 +240,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ])
     );
   }
-  Widget _home(List<Match> top, List<Match> medium, List<Match> signals, List<Match> strong)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+  Widget _home(List<Match> top, List<Match> medium, List<Match> signals, List<Match> strong, bool isMarketFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
       padding:const EdgeInsets.all(20),decoration:BoxDecoration(
         borderRadius:BorderRadius.circular(28),
