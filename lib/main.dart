@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 
 // Match AI Pro live build marker
+// Curated men's + women's competition feed
 
 void main() => runApp(const MatchAIPro());
 
