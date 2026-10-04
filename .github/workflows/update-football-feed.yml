@@ -105,8 +105,8 @@ jobs:
                   "league": str(tournament.get("name") or "Football"),
                   "status": "LIVE" if live else ("FT" if finished else "NS"),
                   "live": live,
-                  "scoreHome": score_value(event.get("homeScore")),
-                  "scoreAway": score_value(event.get("awayScore")),
+                  "scoreHome": None if str((event.get("status") or {}).get("type") or "").lower() in {"notstarted","scheduled"} else score_value(event.get("homeScore")),
+                  "scoreAway": None if str((event.get("status") or {}).get("type") or "").lower() in {"notstarted","scheduled"} else score_value(event.get("awayScore")),
                   "homeTeamId": as_int(home.get("id")),
                   "awayTeamId": as_int(away.get("id")),
                   "priority": as_int(tournament.get("priority")) or 0,
@@ -180,9 +180,19 @@ jobs:
           def match_stats(event_id):
               try:
                   data = get_json(
-                      "https://api.sofascore.app/api/v1/event/" + str(event_id) + "/statistics",
-                      18,
-                  )
+                      stats_urls = [
+                  "https://api.sofascore.app/api/v1/event/" + str(event_id) + "/statistics",
+                  "https://www.sofascore.com/api/v1/event/" + str(event_id) + "/statistics",
+              ]
+              data = None
+              for stats_url in stats_urls:
+                  try:
+                      data = get_json(stats_url, 18)
+                      break
+                  except Exception:
+                      continue
+              if not data:
+                  return {}
                   period = next(
                       (p for p in data.get("statistics", []) if isinstance(p, dict) and p.get("period") == "ALL"),
                       None,
@@ -218,10 +228,18 @@ jobs:
               if not team_id:
                   return None
               try:
-                  data = get_json(
+                  data = None
+                  for recent_url in (
                       "https://api.sofascore.app/api/v1/team/" + str(team_id) + "/events/last/0",
-                      15,
-                  )
+                      "https://www.sofascore.com/api/v1/team/" + str(team_id) + "/events/last/0",
+                  ):
+                      try:
+                          data = get_json(recent_url, 15)
+                          break
+                      except Exception:
+                          continue
+                  if not data:
+                      return None
                   games = 0
                   gf = ga = btts = over15 = over25 = 0
                   for event in data.get("events") or []:
@@ -408,19 +426,20 @@ jobs:
               ap = form_points(away_team.get("form") or [])
 
               items = []
-              index = 50
+              index = 45
 
               if hp >= ap + 3:
                   items.append("1X • forma recente favorevole alla squadra di casa")
-                  index += 8
+                  index += 13
               elif ap >= hp + 3:
                   items.append("X2 • forma recente favorevole alla squadra ospite")
-                  index += 8
+                  index += 13
               else:
                   items.append("1X2 equilibrato • nessun vantaggio netto dalla forma")
-                  index += 3
+                  index += 4
 
               if home_recent and away_recent:
+                  index += 8
                   expected = (
                       home_recent["gf"]
                       + away_recent["ga"]
@@ -433,19 +452,19 @@ jobs:
 
                   if expected >= 2.35 or over15 >= 0.70:
                       items.append("Over 1.5 • ritmo delle ultime 5 gare")
-                      index += 10
+                      index += 9
                   if expected >= 2.90 and over25 >= 0.60:
                       items.append("Over 2.5 • produzione offensiva recente sostenuta")
-                      index += 8
+                      index += 7
                   elif btts >= 0.65:
                       items.append("Goal/Goal • entrambe segnano con frequenza")
-                      index += 8
+                      index += 7
                   elif expected <= 2.15 and over25 <= 0.40:
                       items.append("Under 3.5 • profilo recente contenuto")
                       index += 6
 
               record_item["proposals"] = items[:3]
-              record_item["proposalScore"] = max(50, min(88, index))
+              record_item["proposalScore"] = max(45, min(88, index))
 
           try:
               events, source_url = load_events()
@@ -531,13 +550,15 @@ jobs:
           forms = {}
           with ThreadPoolExecutor(max_workers=8) as pool:
               def get_form(item):
-                  try:
-                      return get_json(
-                          "https://api.sofascore.app/api/v1/event/" + str(item["id"]) + "/pregame-form",
-                          12,
-                      )
-                  except Exception:
-                      return {}
+                  for form_url in (
+                      "https://api.sofascore.app/api/v1/event/" + str(item["id"]) + "/pregame-form",
+                      "https://www.sofascore.com/api/v1/event/" + str(item["id"]) + "/pregame-form",
+                  ):
+                      try:
+                          return get_json(form_url, 12)
+                      except Exception:
+                          continue
+                  return {}
               futures = {pool.submit(get_form, x): x for x in upcoming}
               for future in as_completed(futures):
                   forms[futures[future]["id"]] = future.result()
