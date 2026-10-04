@@ -211,7 +211,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   @override void dispose(){pulse.dispose();super.dispose();}
   Future<void> load() async { if(mounted)setState(()=>loading=true); try{final m=await service.today(); if(!mounted)return; setState((){matches=m;error=null;});}catch(_){ if(!mounted)return; setState(()=>error=null); }finally{if(mounted)setState(()=>loading=false);} }
   @override Widget build(BuildContext context){
-    final strong=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=65).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=strong.take(6).toList();
+    final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=50).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.take(6).toList(); final strong=signals.where((m)=>m.confidence>=70).toList();
     return Scaffold(
       body: Stack(children:[
         const _Background(),
@@ -243,20 +243,20 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         const Text('AI SCANNER',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:2)),
         const SizedBox(height:7),const Text('Le migliori partite\ndi oggi.',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.02)),
-        const SizedBox(height:8),Text('${matches.length} partite nel feed · ${strong.length} segnali forti',style:const TextStyle(color:Color(0xFF9299AD),fontSize:12)),
+        const SizedBox(height:8),Text('${matches.length} partite nel feed · ${signals.length} segnali · ${strong.length} forti',style:const TextStyle(color:Color(0xFF9299AD),fontSize:12)),
         const SizedBox(height:18),Row(children:[
-          _orb(strong.isEmpty?0:strong.first.confidence),
+          _orb(top.isEmpty?0:top.first.confidence),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             const Text('TOP AI SIGNAL',style:TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
-            const SizedBox(height:5),Text(strong.isEmpty?'Feed disponibile':strong.first.home,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
-            Text(strong.isEmpty?'Nessuna proposta affidabile':strong.first.away,style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
+            const SizedBox(height:5),Text(top.isEmpty?'Feed disponibile':top.first.home,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
+            Text(top.isEmpty?'Nessuna proposta disponibile':top.first.away,style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
         ])
       ])
     )),
     _title('🔥 Proposte IA','Solo match con proposta'),
-    ...strong.map((m)=>_card(m)),
-    if(strong.isEmpty) _empty('Nessuna proposta forte','Il sistema preferisce non forzare una selezione con dati insufficienti.')
+    ...top.map((m)=>_card(m)),
+    if(top.isEmpty) _empty('Nessuna proposta disponibile','Il feed non contiene ancora dati sufficienti per proporre una selezione.')
   ]);
   Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title('Partite di oggi','Feed SofaScore · refresh automatico'),...matches.map(_card)
@@ -265,10 +265,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     _title('AI CENTER','Analisi e qualità dati'),
     Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Row(children:[Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),SizedBox(width:10),Text('Motore decisionale',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),
-      const SizedBox(height:14),_metric('Match con proposta',strong.isEmpty?0:1),_metric('Dati disponibili',matches.isEmpty?0:1),_metric('Feed aggiornato',.95),
+      const SizedBox(height:14),_metric('Match con proposta',signals.isEmpty?0:signals.length>6?1:signals.length/6),_metric('Dati disponibili',matches.isEmpty?0:1),_metric('Feed aggiornato',.95),
       const SizedBox(height:12),const Text('Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
     ])),
-    _title('⭐ Alta confidenza','Le selezioni migliori'),...strong.map(_card)
+    _title('⭐ Alta confidenza','Le selezioni migliori'),...(strong.isNotEmpty ? strong.map(_card) : top.map(_card))
   ]);
   Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
   Widget _title(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(2,22,2,9),child:Row(children:[Expanded(child:Text(a,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Text(b,style:const TextStyle(fontSize:9,color:Color(0xFF7E8598)))]));
