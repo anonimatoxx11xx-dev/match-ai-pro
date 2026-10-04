@@ -211,7 +211,16 @@ jobs:
                           spread = candidate if abs(candidate) <= 5.0 else None
                       except Exception:
                           spread = None
-              if spread is not None and abs(spread) > 5.0:
+              if spread is not None and abs(spread) > 20.0:
+                  # ESPN soccer can expose the American moneyline in the
+                  # generic spread field. Treat large values as moneyline,
+                  # never as a handicap.
+                  if favorite == home_name:
+                      home_odds.setdefault("moneyLine", spread)
+                  else:
+                      away_odds.setdefault("moneyLine", spread)
+                  spread = None
+              elif spread is not None and abs(spread) > 5.0:
                   spread = None
 
               if not favorite and details:
