@@ -272,15 +272,28 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title('Partite di oggi',matches.isEmpty ? 'Feed' : 'Feed ${matches.first.source} · refresh automatico'),...matches.map(_card)
   ]);
-  Widget _ai(List<Match> signals, List<Match> strong)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    _title('AI CENTER','Analisi e qualità dati'),
-    Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      const Row(children:[Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),SizedBox(width:10),Text('Motore decisionale',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),
-      const SizedBox(height:14),_metric('Match con proposta',signals.isEmpty?0:signals.length>6?1:signals.length/6),_metric('Dati disponibili',matches.isEmpty?0:1),_metric('Feed aggiornato',.95),
-      const SizedBox(height:12),const Text('Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
-    ])),
-    _title('⭐ Alta confidenza','Le selezioni migliori'),...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
-  ]);
+  Widget _ai(List<Match> signals, List<Match> strong){
+    final total=matches.length;
+    final withData=matches.where((m)=>m.stats.isNotEmpty || m.preMatchStats.isNotEmpty).length;
+    final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
+    final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
+    final freshness=age<=15?1.0:(age<=60?.9:.65);
+    final source=matches.isEmpty?'Feed':matches.first.source;
+    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+      _title('AI CENTER','Analisi e qualità dati'),
+      Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Row(children:[const Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),const SizedBox(width:10),Text(source=='ESPN fallback'?'Motore mercato + AI':'Motore decisionale',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),
+        const SizedBox(height:14),
+        _metric('Match con proposta',total==0?0:signals.length/total),
+        _metric('Dati partita',total==0?0:withData/total),
+        _metric('Feed aggiornato',freshness),
+        const SizedBox(height:12),
+        Text(source=='ESPN fallback'?'Il feed corrente usa segnali di mercato ESPN. Non vengono presentati come statistiche SofaScore.':'Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
+      ])),
+      _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
+      ...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
+    ]);
+  }
   Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
   Widget _title(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(2,22,2,9),child:Row(children:[Expanded(child:Text(a,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Text(b,style:const TextStyle(fontSize:9,color:Color(0xFF7E8598)))]));
   Widget _card(Match m)=>GestureDetector(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF0A0D17),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xD9121724),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(children:[
