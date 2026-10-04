@@ -254,7 +254,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         const SizedBox(height:18),Row(children:[
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(top.isEmpty ? (medium.isEmpty ? 'TOP SIGNAL' : 'TOP MARKET SIGNAL') : 'TOP AI SIGNAL',style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
+            Text(matches.isNotEmpty && matches.first.source=='ESPN fallback' ? 'TOP MARKET SIGNAL' : (top.isEmpty ? (medium.isEmpty ? 'TOP SIGNAL' : 'TOP MARKET SIGNAL') : 'TOP AI SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
             const SizedBox(height:5),Text((top.isEmpty ? (medium.isEmpty ? 'Feed disponibile' : medium.first.home) : top.first.home),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
             Text((top.isEmpty ? (medium.isEmpty ? 'Nessuna proposta disponibile' : medium.first.away) : top.first.away),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
@@ -277,7 +277,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final withData=matches.where((m)=>m.stats.isNotEmpty || m.preMatchStats.isNotEmpty).length;
     final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
-    final freshness=age<=15?1.0:(age<=60?.9:.65);
+    final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
     final source=matches.isEmpty?'Feed':matches.first.source;
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       _title('AI CENTER','Analisi e qualità dati'),
