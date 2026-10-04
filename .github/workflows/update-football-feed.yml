@@ -179,7 +179,7 @@ jobs:
                       data = get_json(url, 25)
                       events = data.get("events") or []
                       if events:
-                          return events, url, True, True, True
+                          return events, url, True
                   except Exception as exc:
                       last_error = exc
 
@@ -201,7 +201,7 @@ jobs:
                       data = response.json()
                       events = data.get("events") or (data.get("data") or {}).get("events") or []
                       if events:
-                          return events, url
+                          return events, url, True
                       last_error = RuntimeError("RapidAPI SofaScore returned no events")
                   except Exception as exc:
                       last_error = exc
