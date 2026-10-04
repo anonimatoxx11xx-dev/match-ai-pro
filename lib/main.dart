@@ -223,16 +223,16 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
             IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded,color:Color(0xFFAAA1FF)))
           ])),
           Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : matches.isEmpty ? _NoData(retry:load) : IndexedStack(index:tab,children:[
-            _home(top),
+            _home(top, signals, strong),
             _all(),
-            _ai(top),
+            _ai(signals, strong),
           ])),
           _nav(),
         ]))
       ])
     );
   }
-  Widget _home(List<Match> strong)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+  Widget _home(List<Match> top, List<Match> signals, List<Match> strong)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
       padding:const EdgeInsets.all(20),decoration:BoxDecoration(
         borderRadius:BorderRadius.circular(28),
@@ -261,7 +261,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title('Partite di oggi','Feed SofaScore · refresh automatico'),...matches.map(_card)
   ]);
-  Widget _ai(List<Match> strong)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+  Widget _ai(List<Match> signals, List<Match> strong)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title('AI CENTER','Analisi e qualità dati'),
     Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Row(children:[Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),SizedBox(width:10),Text('Motore decisionale',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),
