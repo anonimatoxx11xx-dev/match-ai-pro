@@ -268,7 +268,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       const SizedBox(height:14),_metric('Match con proposta',signals.isEmpty?0:signals.length>6?1:signals.length/6),_metric('Dati disponibili',matches.isEmpty?0:1),_metric('Feed aggiornato',.95),
       const SizedBox(height:12),const Text('Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
     ])),
-    _title('⭐ Alta confidenza','Le selezioni migliori'),...(strong.isNotEmpty ? strong.map(_card) : top.map(_card))
+    _title('⭐ Alta confidenza','Le selezioni migliori'),...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
   ]);
   Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
   Widget _title(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(2,22,2,9),child:Row(children:[Expanded(child:Text(a,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Text(b,style:const TextStyle(fontSize:9,color:Color(0xFF7E8598)))]));
