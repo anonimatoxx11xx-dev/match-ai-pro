@@ -208,12 +208,19 @@ jobs:
               if not favorite:
                   return
               strength = 62
+              moneyline = home_odds.get("moneyLine") if favorite == home_name else away_odds.get("moneyLine")
+              try:
+                  ml = float(moneyline) if moneyline is not None else None
+                  implied = ((-ml) / ((-ml) + 100)) if ml < 0 else (100 / (ml + 100))
+                  strength = 50 + int(max(0.0, min(0.45, implied - 0.50)) * 80)
+              except Exception:
+                  pass
               if spread is not None:
-                  strength += min(16, int(abs(spread) * 5))
-              if strength < 65:
-                  strength = 65
-              if strength > 82:
-                  strength = 82
+                  strength += min(10, int(abs(spread) * 3))
+              if strength < 50:
+                  strength = 50
+              if strength > 88:
+                  strength = 88
               item["proposals"] = ["Winner • " + favorite + " (market signal)"]
               if over_under is not None and over_under <= 3.0:
                   item["proposals"].append("Under 3.5 • linea " + str(over_under))
