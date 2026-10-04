@@ -464,8 +464,10 @@ jobs:
               record_item["proposals"] = items[:3]
               record_item["proposalScore"] = max(45, min(88, index))
 
+          source_live = False
           try:
               events, source_url = load_events()
+              source_live = True
               records = []
               seen = set()
 
@@ -487,6 +489,17 @@ jobs:
               except Exception:
                   records = []
                   source_url = "https://api.sofascore.com/api/v1"
+
+          # If SofaScore is blocked and we are serving the cached calendar, never reuse
+          # old proposals or confidence scores as if they were fresh analysis.
+          # Stale predictions are worse than showing no prediction.
+          if not source_live:
+              print("DEGRADED FEED: clearing cached pre-match proposals until SofaScore is reachable.")
+              for cached_item in records:
+                  if isinstance(cached_item, dict) and cached_item.get("status") == "NS":
+                      cached_item["proposals"] = []
+                      cached_item["preMatchStats"] = []
+                      cached_item["proposalScore"] = 0
 
           # Normalize cached records from older feed versions before any keyed access.
           normalized_records = []
@@ -590,6 +603,7 @@ jobs:
               "sourceUrl": source_url,
               "date": ISO_DATE,
               "updatedAt": datetime.now(TZ).isoformat(),
+              "feedStatus": "LIVE" if source_live else "DEGRADED",
               "matches": records,
           }
 
