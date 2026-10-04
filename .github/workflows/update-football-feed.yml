@@ -197,6 +197,18 @@ jobs:
                   over_under = float(over_under) if over_under is not None else None
               except Exception:
                   over_under = None
+
+              # Some ESPN soccer boards expose only the favorite and a compact
+              # details string (for example "AVL -0.5"). Recover the spread
+              # from that string instead of assigning every signal the same 62.
+              if spread is None and details:
+                  spread_match = re.search(r"([+-]?\d+(?:\.\d+)?)\s*$", details)
+                  if spread_match:
+                      try:
+                          spread = float(spread_match.group(1))
+                      except Exception:
+                          spread = None
+
               if not favorite and details:
                   parts = details.rsplit(" ", 1)
                   if len(parts) == 2:
@@ -216,7 +228,9 @@ jobs:
               except Exception:
                   pass
               if spread is not None:
-                  strength += min(10, int(abs(spread) * 3))
+                  strength += min(14, int(abs(spread) * 4))
+              if over_under is not None and (over_under <= 2.5 or over_under >= 3.0):
+                  strength += 3
               if strength < 50:
                   strength = 50
               if strength > 88:
