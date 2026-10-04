@@ -251,32 +251,36 @@ jobs:
                       except Exception:
                           pass
 
-              # Market-only signal: derive the index from the actual
-              # moneyline first, then add a small handicap/total bonus.
-              # Never treat an American moneyline as a handicap.
-              strength = 54
+              # Market-only signal: convert the actual American moneyline
+              # into an implied probability and map it to a softer, differentiated
+              # confidence index. Do not let many favorites collapse at 87.
+              strength = 50
               moneyline = home_odds.get("moneyLine") if favorite == home_name else away_odds.get("moneyLine")
+              implied = None
               try:
                   ml = float(moneyline) if moneyline is not None else None
                   if ml is not None:
                       implied = ((-ml) / ((-ml) + 100)) if ml < 0 else (100 / (ml + 100))
-                      strength = 50 + int(max(0.0, min(0.35, implied - 0.50)) * 100)
+                      # Examples: 0.60 -> ~59, 0.70 -> ~67, 0.80 -> ~76, 0.90 -> ~84.
+                      strength = 50 + int(max(0.0, min(0.42, implied - 0.50)) * 86)
+                      if implied >= 0.75:
+                          strength += 2
+                      if implied >= 0.85:
+                          strength += 2
               except Exception:
                   pass
               if spread is not None:
-                  strength += min(10, int(abs(spread) * 3))
-              if over_under is not None and (over_under <= 2.5 or over_under >= 3.0):
-                  strength += 2
-              strength = max(50, min(88, strength))
+                  strength += min(4, int(abs(spread) * 2))
+              strength = max(50, min(92, strength))
               item["proposals"] = ["Winner • " + favorite + " (market signal)"]
-              if over_under is not None and over_under <= 3.0:
-                  item["proposals"].append("Under 3.5 • linea " + str(over_under))
-              elif over_under is not None and over_under >= 2.5:
-                  item["proposals"].append("Over 1.5 • linea " + str(over_under))
+              # Keep the fallback conservative: do not manufacture a second
+              # goal-line recommendation from the over/under market.
               item["proposalScore"] = strength
               item["preMatchStats"] = []
+              if moneyline is not None:
+                  item["preMatchStats"].append("Moneyline: " + str(moneyline))
               if spread is not None:
-                  item["preMatchStats"].append("Linea: " + str(spread))
+                  item["preMatchStats"].append("Handicap: " + str(spread))
               if over_under is not None:
                   item["preMatchStats"].append("Totale gol: " + str(over_under))
               item["preMatchStats"].append("Segnale mercato pre-match")
