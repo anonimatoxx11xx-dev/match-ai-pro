@@ -185,6 +185,13 @@ jobs:
               ("uefa.europa", "UEFA Europa League"),
               ("uefa.europa.conf", "UEFA Conference League"),
               ("uefa.wchampions", "UEFA Women's Champions League"),
+              ("eng.w.1", "Women's Super League"),
+              ("esp.w.1", "Liga F"),
+              ("ned.w.1", "Vrouwen Eredivisie"),
+              ("ger.w.1", "Frauen-Bundesliga"),
+              ("fra.w.1", "Première Ligue"),
+              ("ita.w.1", "Serie A Femminile"),
+              ("usa.nwsl", "NWSL"),
           ]
 
           def load_espn_events():
