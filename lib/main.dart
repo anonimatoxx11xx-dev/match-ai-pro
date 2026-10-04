@@ -241,18 +241,18 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         const SizedBox(height:7),const Text('Le migliori partite\ndi oggi.',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.02)),
         const SizedBox(height:8),Text('${matches.length} partite nel feed · ${strong.length} con proposta',style:const TextStyle(color:Color(0xFF9299AD),fontSize:12)),
         const SizedBox(height:18),Row(children:[
-          _orb(top.isEmpty?0:top.first.confidence),
+          _orb(strong.isEmpty?0:strong.first.confidence),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             const Text('TOP AI SIGNAL',style:TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
-            const SizedBox(height:5),Text(top.isEmpty?'Feed disponibile':top.first.home,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
-            Text(top.isEmpty?'Nessuna proposta affidabile':top.first.away,style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
+            const SizedBox(height:5),Text(strong.isEmpty?'Feed disponibile':strong.first.home,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
+            Text(strong.isEmpty?'Nessuna proposta affidabile':strong.first.away,style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
         ])
       ])
     )),
     _title('🔥 Proposte IA','Solo match con proposta'),
-    ...top.map((m)=>_card(m)),
-    if(top.isEmpty) _empty('Nessuna proposta forte','Il sistema preferisce non forzare una selezione con dati insufficienti.')
+    ...strong.map((m)=>_card(m)),
+    if(strong.isEmpty) _empty('Nessuna proposta forte','Il sistema preferisce non forzare una selezione con dati insufficienti.')
   ]);
   Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title('Partite di oggi','Feed SofaScore · refresh automatico'),...matches.map(_card)
