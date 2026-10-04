@@ -179,20 +179,18 @@ jobs:
 
           def match_stats(event_id):
               try:
-                  data = get_json(
-                      stats_urls = [
-                  "https://api.sofascore.app/api/v1/event/" + str(event_id) + "/statistics",
-                  "https://www.sofascore.com/api/v1/event/" + str(event_id) + "/statistics",
-              ]
-              data = None
-              for stats_url in stats_urls:
-                  try:
-                      data = get_json(stats_url, 18)
-                      break
-                  except Exception:
-                      continue
-              if not data:
-                  return {}
+                  data = None
+                  for stats_url in (
+                      "https://api.sofascore.app/api/v1/event/" + str(event_id) + "/statistics",
+                      "https://www.sofascore.com/api/v1/event/" + str(event_id) + "/statistics",
+                  ):
+                      try:
+                          data = get_json(stats_url, 18)
+                          break
+                      except Exception:
+                          continue
+                  if not data:
+                      return {}
                   period = next(
                       (p for p in data.get("statistics", []) if isinstance(p, dict) and p.get("period") == "ALL"),
                       None,
