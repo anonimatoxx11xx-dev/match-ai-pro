@@ -168,6 +168,65 @@ jobs:
                   raise RuntimeError("ESPN returned no events")
               return events, url
 
+          def espn_proposal(item, event):
+              if item.get("status") != "NS":
+                  return
+              competitions = event.get("competitions") or []
+              comp = competitions[0] if competitions else {}
+              odds = comp.get("odds") or []
+              if not odds:
+                  return
+              market = odds[0] if isinstance(odds[0], dict) else {}
+              home_name = item.get("home") or "Casa"
+              away_name = item.get("away") or "Ospiti"
+              home_odds = market.get("homeTeamOdds") or {}
+              away_odds = market.get("awayTeamOdds") or {}
+              favorite = None
+              if home_odds.get("favorite") is True:
+                  favorite = home_name
+              elif away_odds.get("favorite") is True:
+                  favorite = away_name
+              details = str(market.get("details") or "").strip()
+              spread = market.get("spread")
+              over_under = market.get("overUnder")
+              try:
+                  spread = float(spread) if spread is not None else None
+              except Exception:
+                  spread = None
+              try:
+                  over_under = float(over_under) if over_under is not None else None
+              except Exception:
+                  over_under = None
+              if not favorite and details:
+                  parts = details.rsplit(" ", 1)
+                  if len(parts) == 2:
+                      abbr = parts[0].upper()
+                      if abbr == str((comp.get("competitors") or [{}])[0].get("team", {}).get("abbreviation") or "").upper():
+                          favorite = home_name
+                      elif len(comp.get("competitors") or []) > 1 and abbr == str((comp.get("competitors") or [{}, {}])[1].get("team", {}).get("abbreviation") or "").upper():
+                          favorite = away_name
+              if not favorite:
+                  return
+              strength = 62
+              if spread is not None:
+                  strength += min(16, int(abs(spread) * 5))
+              if strength < 65:
+                  strength = 65
+              if strength > 82:
+                  strength = 82
+              item["proposals"] = ["Winner • " + favorite + " (market signal)"]
+              if over_under is not None and over_under <= 3.0:
+                  item["proposals"].append("Under 3.5 • linea " + str(over_under))
+              elif over_under is not None and over_under >= 2.5:
+                  item["proposals"].append("Over 1.5 • linea " + str(over_under))
+              item["proposalScore"] = strength
+              item["preMatchStats"] = []
+              if spread is not None:
+                  item["preMatchStats"].append("Linea: " + str(spread))
+              if over_under is not None:
+                  item["preMatchStats"].append("Totale gol: " + str(over_under))
+              item["preMatchStats"].append("Segnale mercato pre-match")
+
           def load_events():
               urls = [
                   f"https://api.sofascore.app/api/v1/sport/football/scheduled-events/{ISO_DATE}",
@@ -535,6 +594,8 @@ jobs:
                   if item["id"] <= 0 or item["id"] in seen:
                       continue
                   seen.add(item["id"])
+                  if not source_live:
+                      espn_proposal(item, event)
                   records.append(item)
           except Exception as sofa_error:
               print("SofaScore unavailable, keeping last verified SofaScore feed:", sofa_error)
