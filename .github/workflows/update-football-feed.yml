@@ -244,7 +244,14 @@ jobs:
                           "Liga MX","Brasileirão","Argentina Primera","UEFA Champions League",
                           "UEFA Europa League","UEFA Conference League","UEFA Women's Champions League",
                           "Women's Super League","Liga F","Vrouwen Eredivisie","Frauen-Bundesliga",
-                          "Première Ligue","Serie A Femminile","NWSL"
+                          "Première Ligue","Serie A Femminile","NWSL",
+                          "International Friendly","International Friendlies",
+                          "UEFA Nations League","FIFA World Cup Qualifying",
+                          "World Cup Qualifying - UEFA","World Cup Qualifying - CONMEBOL",
+                          "World Cup Qualifying - CONCACAF","World Cup Qualifying - AFC",
+                          "World Cup Qualifying - CAF","World Cup Qualifying - OFC",
+                          "CONCACAF Nations League","Copa America","AFC Asian Cup",
+                          "Africa Cup of Nations","Gold Cup"
                       }
                       filtered = []
                       for event in global_events:
