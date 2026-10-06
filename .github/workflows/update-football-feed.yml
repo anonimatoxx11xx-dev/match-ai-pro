@@ -229,6 +229,40 @@ jobs:
                   seen_ids.add(event_id)
                   deduped.append(event)
 
+              # Some dates have very few events in the individual league
+              # endpoints. In that case use ESPN's global scoreboard and keep only
+              # recognized top competitions, so the app never collapses to 1 match.
+              if len(deduped) < 10:
+                  global_url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates={date_key}&limit=1000"
+                  try:
+                      global_data = get_json(global_url, 25)
+                      global_events = global_data.get("events") or []
+                      allowed = {
+                          "Premier League","La Liga","Serie A","Bundesliga","Ligue 1",
+                          "Eredivisie","Primeira Liga","Belgian Pro League","Turkish Super Lig",
+                          "Scottish Premiership","Swiss Super League","Championship","MLS",
+                          "Liga MX","Brasileirão","Argentina Primera","UEFA Champions League",
+                          "UEFA Europa League","UEFA Conference League","UEFA Women's Champions League",
+                          "Women's Super League","Liga F","Vrouwen Eredivisie","Frauen-Bundesliga",
+                          "Première Ligue","Serie A Femminile","NWSL"
+                      }
+                      filtered = []
+                      for event in global_events:
+                          comps = event.get("competitions") or []
+                          comp = comps[0] if comps else {}
+                          league_obj = comp.get("league") or {}
+                          league_name = str(league_obj.get("name") or "").strip()
+                          if league_name in allowed:
+                              event["_match_ai_league"] = league_name
+                              filtered.append(event)
+                      if filtered:
+                          deduped = filtered
+                          source_url = global_url
+                          print("ESPN global top-league fallback:", len(deduped), "events")
+                          return deduped, source_url
+                  except Exception as exc:
+                      print("ESPN global fallback failed:", exc)
+
               if not deduped:
                   raise RuntimeError("ESPN top-league scoreboards returned no events")
               source_url = urls[0] if urls else "https://site.api.espn.com/apis/site/v2/sports/soccer"
