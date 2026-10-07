@@ -222,7 +222,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   @override void dispose(){refreshTimer?.cancel(); pulse.dispose(); super.dispose();}
   Future<void> load() async { if(mounted)setState(()=>loading=true); try{final m=await service.today(); if(!mounted)return; setState((){matches=m;error=null;});}catch(_){ if(!mounted)return; setState(()=>error=null); }finally{if(mounted)setState(()=>loading=false);} }
   @override Widget build(BuildContext context){
-    final isMarketFeed=matches.isNotEmpty && matches.first.source=='ESPN fallback'; final strongCutoff=isMarketFeed?80:70; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=55).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
+    final isMarketFeed=matches.isNotEmpty && matches.first.source=='ESPN fallback'; final strongCutoff=isMarketFeed?80:70; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
     return Scaffold(
       body: Stack(children:[
         const _Background(),
