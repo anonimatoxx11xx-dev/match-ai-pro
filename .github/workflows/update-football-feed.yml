@@ -570,6 +570,48 @@ jobs:
                   print("TheSportsDB unavailable:", exc)
                   return []
 
+          def load_openligadb():
+              # OpenLigaDB is a free, unauthenticated German football source.
+              # Query the current season and keep only today's fixtures/results.
+              season = NOW.year
+              out = []
+              for shortcut, label in (("bl1", "Bundesliga"), ("bl2", "2. Bundesliga"), ("bl3", "3. Liga")):
+                  url = f"https://api.openligadb.de/getmatchdata/{shortcut}/{season}"
+                  try:
+                      data = get_json(url, 20)
+                      for match in data if isinstance(data, list) else []:
+                          raw_dt = str(match.get("matchDateTimeUTC") or match.get("matchDateTime") or "")
+                          timestamp = parse_provider_timestamp(raw_dt)
+                          if timestamp:
+                              local_date = datetime.fromtimestamp(timestamp, TZ).date().isoformat()
+                              if local_date != ISO_DATE:
+                                  continue
+                          team1 = match.get("team1") or {}
+                          team2 = match.get("team2") or {}
+                          finished = bool(match.get("matchIsFinished"))
+                          result = None
+                          for mr in match.get("matchResults") or []:
+                              if str(mr.get("resultTypeID")) == "2":
+                                  result = mr
+                          sh = as_int((result or {}).get("pointsTeam1"))
+                          sa = as_int((result or {}).get("pointsTeam2"))
+                          status = "FT" if finished else "NS"
+                          out.append(external_record(
+                              "OpenLigaDB",
+                              match.get("matchID"),
+                              team1.get("teamName"),
+                              team2.get("teamName"),
+                              match.get("leagueName") or label,
+                              timestamp,
+                              status,
+                              None if status == "NS" else sh,
+                              None if status == "NS" else sa,
+                          ))
+                      print("OpenLigaDB", shortcut + ":", len([x for x in out if x.get("league") == label]), "matches")
+                  except Exception as exc:
+                      print("OpenLigaDB unavailable:", shortcut, exc)
+              return out
+
           def merge_external_sources(records):
               # External providers are used as a second/third opinion and to fill
               # coverage gaps. They never overwrite a verified SofaScore/ESPN
@@ -578,6 +620,7 @@ jobs:
               with ThreadPoolExecutor(max_workers=3) as pool:
                   futures = [
                       pool.submit(load_thesportsdb),
+                      pool.submit(load_openligadb),
                       pool.submit(load_football_data_org),
                       pool.submit(load_footballdata_io),
                   ]
