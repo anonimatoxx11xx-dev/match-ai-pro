@@ -369,6 +369,34 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _navButton(int i,IconData icon,String label)=>Expanded(child:GestureDetector(onTap:()=>setState(()=>tab=i),child:Container(padding:const EdgeInsets.symmetric(vertical:8),decoration:BoxDecoration(color:tab==i?const Color(0x188B7CFF):Colors.transparent,borderRadius:BorderRadius.circular(14)),child:Column(children:[Icon(icon,size:20,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687)),const SizedBox(height:3),Text(label,style:TextStyle(fontSize:9,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687),fontWeight:FontWeight.w800))]))));
 }
 
+  Widget _calendar(){
+    final groups=<String,List<Match>>{};
+    for(final m in calendarMatches){
+      if(m.status=='FT')continue;
+      final raw=m.time.split('|').first;
+      final key=raw.length>=10?raw.substring(0,10):'9999-99-99';
+      groups.putIfAbsent(key,()=>[]).add(m);
+    }
+    final days=groups.keys.toList()..sort();
+    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+      const Text('Calendario',style:TextStyle(fontSize:26,fontWeight:FontWeight.w900)),
+      const SizedBox(height:4),
+      const Text('Prossime partite dei campionati selezionati',style:TextStyle(color:Color(0xFF9299AD),fontSize:12)),
+      const SizedBox(height:14),
+      if(days.isEmpty)const Padding(padding:EdgeInsets.only(top:80),child:Center(child:Text('Nessuna prossima partita disponibile',style:TextStyle(fontWeight:FontWeight.w800)))),
+      for(final day in days)...[
+        Padding(padding:const EdgeInsets.only(top:14,bottom:8),child:Text(day,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
+        ...groups[day]!.map((m)=>Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF0F1422),borderRadius:BorderRadius.circular(18)),child:Row(children:[
+          SizedBox(width:55,child:Text(m.time.contains('|')?m.time.split('|').last:m.time,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF7F879B),fontWeight:FontWeight.w800)),
+            const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800))
+          ]))
+        ])))
+      ]
+    ]);
+  }
+
 class _Detail extends StatelessWidget {
   final Match m; const _Detail(this.m);
   @override Widget build(BuildContext context)=>DraggableScrollableSheet(expand:false,initialChildSize:.78,minChildSize:.55,maxChildSize:.94,builder:(_,c)=>ListView(controller:c,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
