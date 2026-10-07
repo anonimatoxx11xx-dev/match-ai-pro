@@ -64,6 +64,21 @@ class Match {
 class MatchService {
   bool lastFeedWasValid=false;
   static const _feedUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json';
+  static const _calendarUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/calendar.json';
+
+  Future<List<Match>> calendar() async {
+    final stamp=DateTime.now().millisecondsSinceEpoch;
+    try {
+      final response=await http.get(Uri.parse('$_calendarUrl?t=$stamp')).timeout(const Duration(seconds:15));
+      if(response.statusCode==200){
+        final decoded=jsonDecode(response.body);
+        if(decoded is Map && decoded['matches'] is List){
+          return (decoded['matches'] as List).whereType<Map>().map((m)=>_fromFeed(m,decoded['updatedAt']?.toString()??'')).whereType<Match>().toList();
+        }
+      }
+    } catch (_) {}
+    return <Match>[];
+  }
 
   Future<List<Match>> today() async {
     final errors=<String>[];
