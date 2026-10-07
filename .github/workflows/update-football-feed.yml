@@ -1462,6 +1462,24 @@ jobs:
               json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
 
           output = {
+              "source": "SofaScore + multi-source" if source_live else "ESPN + multi-source fallback",
+              "sourceUrl": source_url,
+              "sources": sorted({
+                  source
+                  for match in records
+                  for source in (match.get("sources") or [])
+              } | ({"SofaScore"} if source_live else {"ESPN"})),
+              "date": ISO_DATE,
+              "updatedAt": datetime.now(TZ).isoformat(),
+              "feedStatus": "LIVE" if source_live else "DEGRADED",
+              "matches": records,
+          }
+
+          for path in (
+              "data/" + ISO_DATE + ".json",
+              "data/latest.json",
+              "data/today.json",
+          ):
               with open(path, "w", encoding="utf-8") as f:
                   json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
 
