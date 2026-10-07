@@ -278,6 +278,138 @@ jobs:
               print("ESPN curated top-league fallback:", len(deduped), "events")
               return deduped, source_url
 
+          def load_espn_recent_results(days_back=7):
+              """Build recent team form from ESPN's public, keyless scoreboards."""
+              today = NOW.date()
+              events_by_team = {}
+              for offset in range(1, days_back + 1):
+                  day = today.fromordinal(today.toordinal() - offset)
+                  date_key = day.strftime("%Y%m%d")
+                  url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates={date_key}&limit=1000"
+                  try:
+                      payload = get_json(url, 25)
+                      for event in payload.get("events") or []:
+                          competitions = event.get("competitions") or []
+                          comp = competitions[0] if competitions else {}
+                          competitors = comp.get("competitors") or []
+                          if len(competitors) < 2:
+                              continue
+                          status_type = ((event.get("status") or {}).get("type") or {})
+                          state = str(status_type.get("state") or "").lower()
+                          completed = bool(status_type.get("completed")) or state in {"post", "final"}
+                          if not completed:
+                              continue
+                          home = next((x for x in competitors if x.get("homeAway") == "home"), competitors[0])
+                          away = next((x for x in competitors if x.get("homeAway") == "away"), competitors[1])
+                          home_team = home.get("team") or {}
+                          away_team = away.get("team") or {}
+                          hn = str(home_team.get("displayName") or home_team.get("name") or "")
+                          an = str(away_team.get("displayName") or away_team.get("name") or "")
+                          hs = as_int(home.get("score"))
+                          aa = as_int(away.get("score"))
+                          if not hn or not an or hs is None or aa is None:
+                              continue
+                          event_time = parse_provider_timestamp(event.get("date"))
+                          rec = (hn, an, hs, aa, event_time)
+                          for team_name, gf, ga in ((hn, hs, aa), (an, aa, hs)):
+                              key = normalize_team_name(team_name)
+                              if not key:
+                                  continue
+                              events_by_team.setdefault(key, []).append({
+                                  "name": team_name,
+                                  "gf": gf,
+                                  "ga": ga,
+                                  "opponent": an if team_name == hn else hn,
+                                  "timestamp": event_time,
+                                  "win": gf > ga,
+                                  "draw": gf == ga,
+                              })
+                  except Exception as exc:
+                      print("ESPN recent results failed:", date_key, exc)
+              for key in events_by_team:
+                  events_by_team[key].sort(key=lambda x: x.get("timestamp") or 0, reverse=True)
+                  events_by_team[key] = events_by_team[key][:6]
+              print("ESPN recent-form teams:", len(events_by_team))
+              return events_by_team
+
+          def format_form(rows):
+              wins = sum(1 for x in rows if x.get("win"))
+              draws = sum(1 for x in rows if x.get("draw"))
+              losses = len(rows) - wins - draws
+              points = wins * 3 + draws
+              gf = sum(int(x.get("gf") or 0) for x in rows)
+              ga = sum(int(x.get("ga") or 0) for x in rows)
+              return f"{wins}V {draws}N {losses}P · {gf}-{ga} gol · {points}/{len(rows)*3 if rows else 0} pt"
+
+          def enrich_with_espn_form(records):
+              upcoming = [x for x in records if x.get("status") == "NS"][:40]
+              if not upcoming:
+                  return
+              form_map = load_espn_recent_results(7)
+              added = 0
+              for item in upcoming:
+                  home_key = normalize_team_name(item.get("home"))
+                  away_key = normalize_team_name(item.get("away"))
+                  home_form = form_map.get(home_key) or []
+                  away_form = form_map.get(away_key) or []
+                  if len(home_form) < 3 or len(away_form) < 3:
+                      continue
+
+                  def ppg(rows):
+                      return sum(3 if x["win"] else 1 if x["draw"] else 0 for x in rows) / len(rows)
+
+                  def gdpg(rows):
+                      return sum((x["gf"] - x["ga"]) for x in rows) / len(rows)
+
+                  home_ppg, away_ppg = ppg(home_form), ppg(away_form)
+                  home_gd, away_gd = gdpg(home_form), gdpg(away_form)
+                  form_edge = (home_ppg - away_ppg) + 0.30 * (home_gd - away_gd)
+                  home_avg_goals = sum(x["gf"] for x in home_form) / len(home_form)
+                  away_avg_goals = sum(x["gf"] for x in away_form) / len(away_form)
+                  combined_goals = home_avg_goals + away_avg_goals
+
+                  pre = item.setdefault("preMatchStats", [])
+                  pre.extend([
+                      "Forma casa: " + format_form(home_form),
+                      "Forma ospiti: " + format_form(away_form),
+                      "Fonte forma: ESPN risultati recenti",
+                  ])
+
+                  stat_score = 56 + min(18, int(abs(form_edge) * 8))
+                  if len(home_form) >= 5 and len(away_form) >= 5:
+                      stat_score += 3
+                  stat_score = max(56, min(77, stat_score))
+
+                  market_score = item.get("proposalScore") or 0
+                  market_pick = ""
+                  for proposal in item.get("proposals") or []:
+                      if "Winner • " in str(proposal):
+                          market_pick = str(proposal).split("Winner • ", 1)[1].replace(" (market signal)", "").strip()
+                          break
+
+                  form_pick = item.get("home") if form_edge > 0.35 else item.get("away") if form_edge < -0.35 else ""
+                  if form_pick:
+                      if market_pick and market_pick != form_pick:
+                          # Conflicting evidence: do not upgrade a weak market signal.
+                          item["proposalScore"] = min(62, max(56, stat_score))
+                          item["proposals"] = ["Conflitto evidenze • forma vs mercato"]
+                      else:
+                          combined = stat_score
+                          if market_score >= 60 and market_pick == form_pick:
+                              combined = round(stat_score * 0.65 + market_score * 0.35)
+                          item["proposalScore"] = max(58, min(82, combined))
+                          item["proposals"] = ["Winner • " + form_pick + " (forma + dati mercato)" if market_score >= 60 else "Winner • " + form_pick + " (forma recente)"]
+                      added += 1
+                  elif combined_goals >= 2.8:
+                      item["proposalScore"] = max(58, min(68, 56 + int((combined_goals - 2.5) * 8)))
+                      item["proposals"] = ["Over 1.5 • forma gol recente"]
+                      added += 1
+                  elif combined_goals <= 2.1:
+                      item["proposalScore"] = max(58, min(67, 56 + int((2.5 - combined_goals) * 8)))
+                      item["proposals"] = ["Under 3.5 • forma gol recente"]
+                      added += 1
+              print("ESPN statistical enrichment:", added, "matches")
+
           def espn_proposal(item, event):
               if item.get("status") != "NS":
                   return
@@ -1084,6 +1216,11 @@ jobs:
           records = normalized_records
 
           records = merge_external_sources(records)
+
+          # Keyless ESPN historical scoreboards provide an independent evidence
+          # family for form, so the app can distinguish statistical analysis from
+          # a single market quote.
+          enrich_with_espn_form(records)
 
           records.sort(
               key=lambda x: (
