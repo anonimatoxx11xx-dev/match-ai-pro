@@ -283,6 +283,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
     final source=matches.isEmpty?'Feed':matches.first.source;
+    final marketOnly=source.toUpperCase().contains('ESPN') && signals.isNotEmpty && signals.every((m)=>m.proposals.every((p)=>p.contains('(market signal)') || p.contains('Conflitto evidenze')));
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       _title('AI CENTER','Analisi e qualità dati'),
       Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -292,7 +293,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         _metric('Dati partita',total==0?0:withData/total),
         _metric('Feed aggiornato',freshness),
         const SizedBox(height:12),
-        Text(source.toUpperCase().contains('ESPN') && isMarketFeed?'Il feed corrente usa segnali ESPN di mercato. I segnali mercato non vengono presentati come previsioni IA validate.':'Le proposte combinano dati disponibili, forma recente e mercato quando presente. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
+        Text(marketOnly?'Il feed corrente usa segnali ESPN di mercato. I segnali mercato non vengono presentati come previsioni IA validate.':'Le proposte combinano dati disponibili, forma recente e mercato quando presente. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
       ...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
