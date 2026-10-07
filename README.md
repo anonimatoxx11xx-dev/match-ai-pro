@@ -41,3 +41,5 @@ RapidAPI richiede anche l'host specifico dell'API (`X-RapidAPI-Host`), che non Ã
 
 ## Multi-source feed
 The feed combines SofaScore, ESPN, TheSportsDB, OpenLigaDB, and optional free providers such as football-data.org and Footballdata.io. Statistical form is kept separate from market-only signals.
+
+- ESPN historical form window: 30 days for independent statistical evidence.
