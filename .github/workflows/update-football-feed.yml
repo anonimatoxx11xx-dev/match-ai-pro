@@ -346,7 +346,7 @@ jobs:
               upcoming = [x for x in records if x.get("status") == "NS"][:40]
               if not upcoming:
                   return
-              form_map = load_espn_recent_results(7)
+              form_map = load_espn_recent_results(30)
               added = 0
               aliases = (
                   ("football club", ""),
@@ -388,7 +388,7 @@ jobs:
               for item in upcoming:
                   home_form = form_rows(item.get("home"))
                   away_form = form_rows(item.get("away"))
-                  if len(home_form) < 3 or len(away_form) < 3:
+                  if len(home_form) < 2 or len(away_form) < 2:
                       continue
 
                   def ppg(rows):
