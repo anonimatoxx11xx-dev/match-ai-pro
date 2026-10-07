@@ -62,6 +62,7 @@ class Match {
 }
 
 class MatchService {
+  bool lastFeedWasValid=false;
   static const _feedUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json';
 
   Future<List<Match>> today() async {
@@ -94,6 +95,10 @@ class MatchService {
 
         final decoded = jsonDecode(response.body);
         final matches = _parsePayload(decoded);
+        if (decoded is Map && decoded['matches'] is List) {
+          lastFeedWasValid = true;
+          return matches;
+        }
         if (matches.isNotEmpty) return matches;
         errors.add('$url -> feed vuoto');
       } catch (e) {
@@ -103,7 +108,12 @@ class MatchService {
 
     try {
       final local = await rootBundle.loadString('data/latest.json');
-      final matches = _parsePayload(jsonDecode(local));
+      final localDecoded = jsonDecode(local);
+      final matches = _parsePayload(localDecoded);
+      if (localDecoded is Map && localDecoded['matches'] is List) {
+        lastFeedWasValid = true;
+        return matches;
+      }
       if (matches.isNotEmpty) return matches;
     } catch (_) {
       // Last-resort local feed is optional during development.
@@ -254,7 +264,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
             const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('MATCH AI PRO',style:TextStyle(fontWeight:FontWeight.w900,fontSize:18,letterSpacing:.5)),Text('AI FOOTBALL INTELLIGENCE',style:TextStyle(fontSize:9,color:Color(0xFF9299AD),letterSpacing:1.3))])),
             IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded,color:Color(0xFFAAA1FF)))
           ])),
-          Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : matches.isEmpty ? _NoData(retry:load) : IndexedStack(index:tab,children:[
+          Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : matches.isEmpty ? _NoData(retry:load, emptyFeed:service.lastFeedWasValid) : IndexedStack(index:tab,children:[
             _home(top, medium, signals, strong, isMarketFeed),
             _all(),
             _ai(signals, strong),
@@ -365,16 +375,18 @@ class _Background extends StatelessWidget { const _Background(); @override Widge
 ]));}
 class _NoData extends StatelessWidget {
   final VoidCallback retry;
-  const _NoData({required this.retry});
+  final bool emptyFeed;
+  const _NoData({required this.retry, this.emptyFeed=false});
   @override
   Widget build(BuildContext c)=>Center(child:Padding(padding:const EdgeInsets.all(25),child:Column(mainAxisSize:MainAxisSize.min,children:[
-    const Icon(Icons.cloud_sync_rounded,size:48,color:Color(0xFFA9A0FF)),
+    Icon(emptyFeed?Icons.event_busy_rounded:Icons.cloud_sync_rounded,size:48,color:const Color(0xFFA9A0FF)),
     const SizedBox(height:12),
-    const Text('Feed in aggiornamento',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
+    Text(emptyFeed?'Nessuna partita selezionata oggi':'Feed in aggiornamento',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
     const SizedBox(height:7),
-    const Text('Riprova tra poco. L’app usa automaticamente il feed verificato e i dati locali di sicurezza.',textAlign:TextAlign.center,style:TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)),
+    Text(emptyFeed?'Oggi non sono disponibili incontri nei campionati e nelle competizioni che hai selezionato. Il feed resta pronto per il prossimo turno.':'Riprova tra poco. L’app usa automaticamente il feed verificato e i dati locali di sicurezza.',textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)),
     const SizedBox(height:16),
     FilledButton.icon(onPressed:retry,icon:const Icon(Icons.refresh_rounded),label:const Text('Aggiorna')),
   ])));
 }
+
 
