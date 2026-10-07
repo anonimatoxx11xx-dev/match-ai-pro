@@ -426,20 +426,5 @@ class _Background extends StatelessWidget { const _Background(); @override Widge
   Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
   Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
 ]));}
-class _NoData extends StatelessWidget {
-  final VoidCallback retry;
-  final bool emptyFeed;
-  const _NoData({required this.retry, this.emptyFeed=false});
-  @override
-  Widget build(BuildContext c)=>Center(child:Padding(padding:const EdgeInsets.all(25),child:Column(mainAxisSize:MainAxisSize.min,children:[
-    Icon(emptyFeed?Icons.event_busy_rounded:Icons.cloud_sync_rounded,size:48,color:const Color(0xFFA9A0FF)),
-    const SizedBox(height:12),
-    Text(emptyFeed?'Nessuna partita selezionata oggi':'Feed in aggiornamento',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
-    const SizedBox(height:7),
-    Text(emptyFeed?'Oggi non sono disponibili incontri nei campionati e nelle competizioni che hai selezionato. Il feed resta pronto per il prossimo turno.':'Riprova tra poco. L’app usa automaticamente il feed verificato e i dati locali di sicurezza.',textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)),
-    const SizedBox(height:16),
-    FilledButton.icon(onPressed:retry,icon:const Icon(Icons.refresh_rounded),label:const Text('Aggiorna')),
-  ])));
-}
 
 
