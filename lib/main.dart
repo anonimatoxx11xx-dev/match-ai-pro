@@ -273,7 +273,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     try{
       final results=await Future.wait([service.today(),service.calendar()]);
       if(!mounted)return;
-      globalCalendarMatches=results[1]; setState(()=>{matches=results[0],calendarMatches=results[1],error=null});
+      globalCalendarMatches=results[1]; setState(() { matches=results[0]; calendarMatches=results[1]; error=null; });
     }catch(_){if(!mounted)return;setState(()=>error=null);}
     finally{if(mounted)setState(()=>loading=false);}
   }
