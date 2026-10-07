@@ -339,6 +339,23 @@ jobs:
                           favorite = home_name
                       elif len(comp.get("competitors") or []) > 1 and abbr == str((comp.get("competitors") or [{}, {}])[1].get("team", {}).get("abbreviation") or "").upper():
                           favorite = away_name
+              # When both moneylines are available, trust the actual market
+              # prices over ESPN's boolean favorite flag. This prevents an
+              # underdog from being presented as the winner signal.
+              def implied_probability(value):
+                  try:
+                      ml = float(value)
+                      return ((-ml) / ((-ml) + 100)) if ml < 0 else (100 / (ml + 100))
+                  except Exception:
+                      return None
+
+              home_ml = home_odds.get("moneyLine")
+              away_ml = away_odds.get("moneyLine")
+              home_prob = implied_probability(home_ml)
+              away_prob = implied_probability(away_ml)
+              if home_prob is not None and away_prob is not None:
+                  favorite = home_name if home_prob >= away_prob else away_name
+
               if not favorite:
                   return
 
@@ -368,11 +385,12 @@ jobs:
                   ml = float(moneyline) if moneyline is not None else None
                   if ml is not None:
                       implied = ((-ml) / ((-ml) + 100)) if ml < 0 else (100 / (ml + 100))
-                      # Examples: 0.60 -> ~59, 0.70 -> ~67, 0.80 -> ~76, 0.90 -> ~84.
-                      strength = 50 + int(max(0.0, min(0.42, implied - 0.50)) * 86)
-                      if implied >= 0.75:
+                      # Convert market probability to a conservative confidence
+                      # index. Weak 50-54% favorites are not presented as recommendations.
+                      strength = 50 + int(max(0.0, min(0.40, implied - 0.50)) * 120)
+                      if implied >= 0.70:
                           strength += 2
-                      if implied >= 0.85:
+                      if implied >= 0.80:
                           strength += 2
               except Exception:
                   pass
