@@ -126,7 +126,28 @@ class MatchService {
     if (rawMatches is List) {
       final updatedAt = decoded['updatedAt']?.toString() ?? '';
       decodedSource = decoded['source']?.toString() ?? 'SofaScore';
-      return rawMatches.whereType<Map>().map((m) => _fromFeed(m, updatedAt)).whereType<Match>().toList();
+      const allowed = {
+        'serie a','serie b',
+        'premier league','championship','league one','league two','national league',
+        'la liga','segunda','segunda división','segunda division',
+        'ligue 1','ligue 2','eredivisie','turkish super lig',
+        'bundesliga','2. bundesliga',
+        'uefa champions league','uefa europa league','uefa conference league',
+        'uefa women’s champions league','uefa women\'s champions league',
+        'fa cup','efl cup','community shield','copa del rey','supercopa de españa','supercopa de espana',
+        'german dfb pokal','coppa italia','coupe de france','knvb cup','turkish cup',
+        'women\'s super league','liga f','vrouwen eredivisie','frauen-bundesliga','première ligue','premiere ligue',
+        'serie a femminile',
+        'international friendly','international friendlies','uefa nations league','fifa world cup qualifying',
+        'world cup qualifying - uefa','world cup qualifying - conmebol','world cup qualifying - concacaf',
+        'world cup qualifying - afc','world cup qualifying - caf','world cup qualifying - ofc',
+        'concacaf nations league','copa america','afc asian cup','africa cup of nations','gold cup',
+      };
+      bool isAllowed(Map m){
+        final v=(m['league']?.toString()??'').trim().toLowerCase();
+        return allowed.contains(v) || (v.endsWith(' women') && allowed.contains(v.substring(0,v.length-6).trim()));
+      }
+      return rawMatches.whereType<Map>().where(isAllowed).map((m) => _fromFeed(m, updatedAt)).whereType<Match>().toList();
     }
 
     final events = decoded['events'];
