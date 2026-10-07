@@ -37,3 +37,7 @@ Sono previsti questi GitHub repository secrets:
 - `APP_RAPIDAPI_KEY` — chiave dell'app RapidAPI, passata alla build per l'integrazione del provider RapidAPI selezionato.
 
 RapidAPI richiede anche l'host specifico dell'API (`X-RapidAPI-Host`), che non è standardizzato tra i diversi servizi RapidAPI. Per questo l'integrazione RapidAPI definitiva va legata all'API/host che hai scelto nel tuo account.
+
+
+## Multi-source feed
+The feed combines SofaScore, ESPN, TheSportsDB, OpenLigaDB, and optional free providers such as football-data.org and Footballdata.io. Statistical form is kept separate from market-only signals.
