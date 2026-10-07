@@ -26,6 +26,8 @@ jobs:
         env:
           APP_RAPIDAPI_KEY: ${{ secrets.APP_RAPIDAPI_KEY }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          FOOTBALLDATA_IO_KEY: ${{ secrets.FOOTBALLDATA_IO_KEY }}
         shell: bash
         run: |
           python3 -m pip install -q curl_cffi
@@ -409,6 +411,206 @@ jobs:
               if over_under is not None:
                   item["preMatchStats"].append("Totale gol: " + str(over_under))
               item["preMatchStats"].append("Segnale mercato pre-match")
+
+          def parse_provider_timestamp(date_value, time_value=None):
+              try:
+                  raw = str(date_value or "").strip()
+                  if not raw:
+                      return 0
+                  if time_value:
+                      raw = raw + "T" + str(time_value).strip()
+                  if raw.endswith("Z"):
+                      return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
+                  # Provider dates without an offset are treated as UTC unless
+                  # the provider explicitly documents a local timezone.
+                  if "T" in raw and "+" not in raw and raw.count("-") >= 2:
+                      return int(datetime.fromisoformat(raw).replace(tzinfo=ZoneInfo("UTC")).timestamp())
+                  return int(datetime.fromisoformat(raw).timestamp())
+              except Exception:
+                  return 0
+
+          def external_record(provider, provider_id, home, away, league, timestamp, status, score_home=None, score_away=None):
+              return {
+                  "id": -abs(as_int(provider_id) or abs(hash(str(provider_id))) % 100000000),
+                  "home": str(home or "Home"),
+                  "away": str(away or "Away"),
+                  "time": datetime.fromtimestamp(timestamp, TZ).strftime("%H:%M") if timestamp else "--:--",
+                  "timestamp": timestamp,
+                  "league": str(league or "Football"),
+                  "status": status,
+                  "live": status == "LIVE",
+                  "scoreHome": score_home,
+                  "scoreAway": score_away,
+                  "homeTeamId": None,
+                  "awayTeamId": None,
+                  "priority": 1,
+                  "stats": {},
+                  "proposals": [],
+                  "proposalScore": 0,
+                  "preMatchStats": ["Fonte: " + provider],
+                  "sources": [provider],
+              }
+
+          def load_football_data_org():
+              token = os.environ.get("FOOTBALL_DATA_TOKEN", "").strip()
+              if not token:
+                  return []
+              url = f"https://api.football-data.org/v4/matches?dateFrom={ISO_DATE}&dateTo={ISO_DATE}"
+              try:
+                  response = session.get(
+                      url,
+                      headers={"X-Auth-Token": token, "Accept": "application/json"},
+                      timeout=20,
+                  )
+                  response.raise_for_status()
+                  matches = (response.json() or {}).get("matches") or []
+                  out = []
+                  for match in matches:
+                      home = (match.get("homeTeam") or {}).get("name")
+                      away = (match.get("awayTeam") or {}).get("name")
+                      timestamp = parse_provider_timestamp(match.get("utcDate"))
+                      status_raw = str(match.get("status") or "").upper()
+                      status = "LIVE" if status_raw in {"IN_PLAY", "PAUSED"} else ("FT" if status_raw == "FINISHED" else "NS")
+                      score = match.get("score") or {}
+                      full = score.get("fullTime") or {}
+                      sh = as_int(full.get("home"))
+                      sa = as_int(full.get("away"))
+                      out.append(external_record(
+                          "football-data.org",
+                          match.get("id"),
+                          home, away,
+                          (match.get("competition") or {}).get("name"),
+                          timestamp, status,
+                          None if status == "NS" else sh,
+                          None if status == "NS" else sa,
+                      ))
+                  print("football-data.org:", len(out), "matches")
+                  return out
+              except Exception as exc:
+                  print("football-data.org unavailable:", exc)
+                  return []
+
+          def load_footballdata_io():
+              token = os.environ.get("FOOTBALLDATA_IO_KEY", "").strip()
+              if not token:
+                  return []
+              url = f"https://footballdata.io/api/v1/fixtures/today?limit=100"
+              try:
+                  response = session.get(
+                      url,
+                      headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+                      timeout=20,
+                  )
+                  response.raise_for_status()
+                  payload = response.json() or {}
+                  data = payload.get("data") or {}
+                  matches = data.get("matches") if isinstance(data, dict) else data
+                  if not isinstance(matches, list):
+                      matches = payload.get("matches") or []
+                  out = []
+                  for match in matches:
+                      home_obj = match.get("home_team") or match.get("homeTeam") or {}
+                      away_obj = match.get("away_team") or match.get("awayTeam") or {}
+                      home = home_obj.get("team_name") or home_obj.get("name") or match.get("home")
+                      away = away_obj.get("team_name") or away_obj.get("name") or match.get("away")
+                      timestamp = as_int(match.get("timestamp") or match.get("start_timestamp"))
+                      if not timestamp:
+                          timestamp = parse_provider_timestamp(match.get("date") or match.get("match_date") or match.get("utc_date"), match.get("time"))
+                      status_raw = str(match.get("status") or "").lower()
+                      status = "LIVE" if any(x in status_raw for x in ("live", "progress", "playing")) else ("FT" if any(x in status_raw for x in ("complete", "finished", "final")) else "NS")
+                      score = match.get("score") or {}
+                      sh = as_int(score.get("home"))
+                      sa = as_int(score.get("away"))
+                      out.append(external_record(
+                          "Footballdata.io",
+                          match.get("match_id") or match.get("id"),
+                          home, away,
+                          (match.get("league") or {}).get("name") if isinstance(match.get("league"), dict) else match.get("league"),
+                          timestamp, status,
+                          None if status == "NS" else sh,
+                          None if status == "NS" else sa,
+                      ))
+                  print("Footballdata.io:", len(out), "matches")
+                  return out
+              except Exception as exc:
+                  print("Footballdata.io unavailable:", exc)
+                  return []
+
+          def load_thesportsdb():
+              url = f"https://www.thesportsdb.com/api/v1/json/123/eventsday.php?d={ISO_DATE}&s=Soccer"
+              try:
+                  data = get_json(url, 20)
+                  events = data.get("events") or []
+                  out = []
+                  for event in events:
+                      date_value = event.get("dateEvent") or ISO_DATE
+                      time_value = event.get("strTime") or event.get("strEventTime")
+                      timestamp = parse_provider_timestamp(date_value, time_value)
+                      status_raw = str(event.get("strStatus") or "").lower()
+                      progress = str(event.get("strProgress") or "").lower()
+                      finished = any(x in status_raw for x in ("ft", "finished", "final")) or "final" in progress
+                      live = any(x in status_raw for x in ("live", "1h", "2h", "ht", "extra")) or ("-" in progress and ":" in progress)
+                      status = "LIVE" if live and not finished else ("FT" if finished else "NS")
+                      sh = as_int(event.get("intHomeScore"))
+                      sa = as_int(event.get("intAwayScore"))
+                      out.append(external_record(
+                          "TheSportsDB",
+                          event.get("idEvent"),
+                          event.get("strHomeTeam"),
+                          event.get("strAwayTeam"),
+                          event.get("strLeague") or "Soccer",
+                          timestamp,
+                          status,
+                          None if status == "NS" else sh,
+                          None if status == "NS" else sa,
+                      ))
+                  print("TheSportsDB:", len(out), "matches")
+                  return out
+              except Exception as exc:
+                  print("TheSportsDB unavailable:", exc)
+                  return []
+
+          def merge_external_sources(records):
+              # External providers are used as a second/third opinion and to fill
+              # coverage gaps. They never overwrite a verified SofaScore/ESPN
+              # match and they never manufacture a prediction by themselves.
+              external = []
+              with ThreadPoolExecutor(max_workers=3) as pool:
+                  futures = [
+                      pool.submit(load_thesportsdb),
+                      pool.submit(load_football_data_org),
+                      pool.submit(load_footballdata_io),
+                  ]
+                  for future in as_completed(futures):
+                      external.extend(future.result())
+              existing = {}
+              for item in records:
+                  key = (normalize_team_name(item.get("home")), normalize_team_name(item.get("away")))
+                  existing[key] = item
+                  item.setdefault("sources", [])
+                  primary = "SofaScore" if item.get("id", 0) > 0 else "ESPN"
+                  if primary not in item["sources"]:
+                      item["sources"].append(primary)
+              added = 0
+              for item in external:
+                  key = (normalize_team_name(item.get("home")), normalize_team_name(item.get("away")))
+                  if not key[0] or not key[1]:
+                      continue
+                  current = existing.get(key)
+                  if current:
+                      current.setdefault("sources", [])
+                      for source in item.get("sources") or []:
+                          if source not in current["sources"]:
+                              current["sources"].append(source)
+                      if current.get("status") == "NS" and item.get("status") == "LIVE":
+                          current["status"] = "LIVE"
+                          current["live"] = True
+                      continue
+                  records.append(item)
+                  existing[key] = item
+                  added += 1
+              print("Multi-source merge:", len(external), "external matches,", added, "new matches")
+              return records
 
           def load_events():
               urls = [
@@ -838,6 +1040,8 @@ jobs:
               normalized_records.append(cached_item)
           records = normalized_records
 
+          records = merge_external_sources(records)
+
           records.sort(
               key=lambda x: (
                   not x.get("live", False),
@@ -900,8 +1104,13 @@ jobs:
           enrich_with_api_football(records)
 
           output = {
-              "source": "SofaScore" if source_live else "ESPN fallback",
+              "source": "SofaScore + multi-source" if source_live else "ESPN + multi-source fallback",
               "sourceUrl": source_url,
+              "sources": sorted({
+                  source
+                  for match in records
+                  for source in (match.get("sources") or [])
+              } | ({"SofaScore"} if source_live else {"ESPN"})),
               "date": ISO_DATE,
               "updatedAt": datetime.now(TZ).isoformat(),
               "feedStatus": "LIVE" if source_live else "DEGRADED",
@@ -925,7 +1134,11 @@ jobs:
               + str(sum(bool(x.get("stats")) for x in records))
               + ", proposals="
               + str(sum(bool(x.get("proposals")) for x in records))
-              + ", source=" + ("SofaScore" if source_live else "ESPN fallback")
+              + ", sources=" + ", ".join(sorted({
+                  source
+                  for match in records
+                  for source in (match.get("sources") or [])
+              } | ({"SofaScore"} if source_live else {"ESPN"})))
           )
           PY
 
