@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 // Match AI Pro live build marker
 // Curated men's + women's competition feed
 
+List<Match> globalCalendarMatches=[];
+
 void main() => runApp(const MatchAIPro());
 
 class MatchAIPro extends StatelessWidget {
@@ -271,7 +273,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     try{
       final results=await Future.wait([service.today(),service.calendar()]);
       if(!mounted)return;
-      setState(()=>{matches=results[0],calendarMatches=results[1],error=null});
+      globalCalendarMatches=results[1]; setState(()=>{matches=results[0],calendarMatches=results[1],error=null});
     }catch(_){if(!mounted)return;setState(()=>error=null);}
     finally{if(mounted)setState(()=>loading=false);}
   }
@@ -364,14 +366,14 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _confidence(int n){ final color=n>=80?const Color(0xFF42E89A):(n>=60?const Color(0xFFFFC857):const Color(0xFF8B7CFF)); return Container(width:52,height:52,decoration:BoxDecoration(shape:BoxShape.circle,border:Border.all(color:color,width:2)),child:Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:TextStyle(fontSize:12,fontWeight:FontWeight.w900,color:color)),Text(n==0?'INDEX':n>=80?'FORTE':n>=60?'MEDIA':'BASSA',style:TextStyle(fontSize:6,color:color,fontWeight:FontWeight.w800))]))); }
   Widget _orb(int n)=>Container(width:78,height:78,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:64,height:64,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF0B0F1C)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:7,color:Color(0xFF8D95A8)))]))));
   Widget _empty(String a,String b)=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20)),child:Column(children:[const Icon(Icons.shield_outlined,color:Color(0xFF8B7CFF),size:38),const SizedBox(height:9),Text(a,style:const TextStyle(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text(b,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11))]));
-  Widget _nav()=>Container(padding:const EdgeInsets.fromLTRB(6,7,6,7),decoration:BoxDecoration(color:const Color(0xE80A0D17),border:Border(top:BorderSide(color:Colors.white10))),child:Row(children:[_navButton(0,Icons.home_rounded,'Oggi'),_navButton(1,Icons.calendar_month_rounded,'Calendario'),_navButton(2,Icons.sports_soccer_rounded,'Partite'),_navButton(3,Icons.auto_awesome,'AI')])));
+  Widget _nav()=>Container(padding:const EdgeInsets.fromLTRB(6,7,6,7),decoration:BoxDecoration(color:const Color(0xE80A0D17),border:Border(top:BorderSide(color:Colors.white10))),child:Row(children:[_navButton(0,Icons.home_rounded,'Oggi'),_navButton(1,Icons.calendar_month_rounded,'Calendario'),_navButton(2,Icons.sports_soccer_rounded,'Partite'),_navButton(3,Icons.auto_awesome,'AI')]));
 
   Widget _navButton(int i,IconData icon,String label)=>Expanded(child:GestureDetector(onTap:()=>setState(()=>tab=i),child:Container(padding:const EdgeInsets.symmetric(vertical:8),decoration:BoxDecoration(color:tab==i?const Color(0x188B7CFF):Colors.transparent,borderRadius:BorderRadius.circular(14)),child:Column(children:[Icon(icon,size:20,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687)),const SizedBox(height:3),Text(label,style:TextStyle(fontSize:9,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687),fontWeight:FontWeight.w800))]))));
 }
 
   Widget _calendar(){
     final groups=<String,List<Match>>{};
-    for(final m in calendarMatches){
+    for(final m in globalCalendarMatches){
       if(m.status=='FT')continue;
       final raw=m.time.split('|').first;
       final key=raw.length>=10?raw.substring(0,10):'9999-99-99';
