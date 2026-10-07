@@ -222,7 +222,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   @override void dispose(){refreshTimer?.cancel(); pulse.dispose(); super.dispose();}
   Future<void> load() async { if(mounted)setState(()=>loading=true); try{final m=await service.today(); if(!mounted)return; setState((){matches=m;error=null;});}catch(_){ if(!mounted)return; setState(()=>error=null); }finally{if(mounted)setState(()=>loading=false);} }
   @override Widget build(BuildContext context){
-    final isMarketFeed=matches.isNotEmpty && matches.first.source=='ESPN fallback'; final strongCutoff=isMarketFeed?80:70; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
+    final isMarketFeed=matches.isNotEmpty && matches.first.source.toUpperCase().contains('ESPN') && matches.every((m)=>m.proposals.every((p)=>p.contains('(market signal)') || p.contains('Conflitto evidenze'))); final strongCutoff=isMarketFeed?80:70; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
     return Scaffold(
       body: Stack(children:[
         const _Background(),
@@ -258,14 +258,14 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         const SizedBox(height:18),Row(children:[
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(matches.isNotEmpty && matches.first.source=='ESPN fallback' ? 'TOP MARKET SIGNAL' : (top.isEmpty ? (medium.isEmpty ? 'TOP SIGNAL' : 'TOP MARKET SIGNAL') : 'TOP AI SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
+            Text(isMarketFeed ? 'TOP MARKET SIGNAL' : (top.isEmpty ? (medium.isEmpty ? 'TOP SIGNAL' : 'TOP SIGNAL' ) : 'TOP AI SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
             const SizedBox(height:5),Text((top.isEmpty ? (medium.isEmpty ? 'Feed disponibile' : medium.first.home) : top.first.home),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
             Text((top.isEmpty ? (medium.isEmpty ? 'Nessuna proposta disponibile' : medium.first.away) : top.first.away),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
         ])
       ])
     )),
-    _title(isMarketFeed?'📈 Segnali mercato':'🔥 Proposte IA',isMarketFeed?'Solo segnali con evidenza':'Solo match con proposta'),
+    _title(isMarketFeed?'📈 Segnali mercato':'🔥 Proposte IA',isMarketFeed?'Solo segnali mercato':'Selezione multi-fonte'),
     ...top.map((m)=>_card(m)),
     if(top.isEmpty && medium.isNotEmpty) ...[
       _title('📊 Segnali monitorati','Confidenza media · non forti'),
@@ -292,7 +292,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         _metric('Dati partita',total==0?0:withData/total),
         _metric('Feed aggiornato',freshness),
         const SizedBox(height:12),
-        Text(source=='ESPN fallback'?'Il feed corrente usa segnali di mercato ESPN. Il livello FORTE richiede un indice ≥80 e non equivale a una previsione statistica validata.':'Le proposte provengono dal feed statistico. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
+        Text(source.toUpperCase().contains('ESPN') && isMarketFeed?'Il feed corrente usa segnali ESPN di mercato. I segnali mercato non vengono presentati come previsioni IA validate.':'Le proposte combinano dati disponibili, forma recente e mercato quando presente. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
       ...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
