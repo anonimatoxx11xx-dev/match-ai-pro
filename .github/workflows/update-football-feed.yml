@@ -1377,6 +1377,62 @@ jobs:
           # latest.json, so subsequent 15-minute runs do not repeatedly spend quota.
           enrich_with_api_football(records)
 
+          def load_upcoming_calendar(days_ahead=14):
+              """Fetch a separate fixture calendar for the selected competitions."""
+              calendar_events = []
+              for offset in range(0, days_ahead + 1):
+                  day = NOW.date().fromordinal(NOW.date().toordinal() + offset)
+                  date_key = day.strftime("%Y%m%d")
+                  for league_id, league_name in TOP_ESPN_LEAGUES:
+                      url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league_id}/scoreboard?dates={date_key}&limit=1000"
+                      try:
+                          payload = get_json(url, 20)
+                          for event in payload.get("events") or []:
+                              item = espn_record(event)
+                              if item.get("id", 0) <= 0:
+                                  continue
+                              item["proposalScore"] = 0
+                              item["proposals"] = []
+                              item["preMatchStats"] = []
+                              item["stats"] = {}
+                              item["sources"] = sorted(set(item.get("sources") or []) | {"ESPN calendar"})
+                              calendar_events.append(item)
+                      except Exception:
+                          continue
+
+                  # Global ESPN endpoint catches UEFA/international competitions
+                  # whose provider league IDs are not always exposed individually.
+                  try:
+                      url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates={date_key}&limit=1000"
+                      payload = get_json(url, 20)
+                      for event in payload.get("events") or []:
+                          comp = ((event.get("competitions") or [{}])[0]).get("competitor") or []
+                          item = espn_record(event)
+                          league = str(item.get("league") or "").strip().lower()
+                          if item.get("id", 0) > 0 and allowed_league(league):
+                              item["proposalScore"] = 0
+                              item["proposals"] = []
+                              item["preMatchStats"] = []
+                              item["stats"] = {}
+                              item["sources"] = sorted(set(item.get("sources") or []) | {"ESPN calendar"})
+                              calendar_events.append(item)
+                  except Exception:
+                      pass
+
+              unique = {}
+              for item in calendar_events:
+                  key = (
+                      normalize_team_name(item.get("home")),
+                      normalize_team_name(item.get("away")),
+                      item.get("timestamp") or 0,
+                  )
+                  if key[0] and key[1]:
+                      unique[key] = item
+              result = list(unique.values())
+              result.sort(key=lambda x: x.get("timestamp") or 0)
+              print("Calendar ready:", len(result), "fixtures")
+              return result
+
           output = {
               "source": "SofaScore + multi-source" if source_live else "ESPN + multi-source fallback",
               "sourceUrl": source_url,
@@ -1393,11 +1449,19 @@ jobs:
 
           import os
           os.makedirs("data", exist_ok=True)
-          for path in (
-              "data/" + ISO_DATE + ".json",
-              "data/latest.json",
-              "data/today.json",
-          ):
+          calendar = load_upcoming_calendar(14)
+
+          output = {
+              "source": "ESPN + multi-source calendar",
+              "sourceUrl": "https://site.api.espn.com/apis/site/v2/sports/soccer/",
+              "updatedAt": datetime.now(TZ).isoformat(),
+              "date": ISO_DATE,
+              "matches": calendar,
+          }
+          with open("data/calendar.json", "w", encoding="utf-8") as f:
+              json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
+
+          output = {
               with open(path, "w", encoding="utf-8") as f:
                   json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
 
