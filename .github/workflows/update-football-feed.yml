@@ -168,33 +168,46 @@ jobs:
           # set of top competitions instead of the global "all" feed, which also
           # contains low-priority college/minor competitions.
           TOP_ESPN_LEAGUES = [
-              ("eng.1", "Premier League"),
-              ("esp.1", "La Liga"),
+              # Requested competitions: Italy (Serie A/B), England (Premier to National League),
+              # Netherlands, France (Ligue 1/2), Spain (La Liga/Segunda), Turkey and Germany.
               ("ita.1", "Serie A"),
-              ("ger.1", "Bundesliga"),
-              ("fra.1", "Ligue 1"),
-              ("ned.1", "Eredivisie"),
-              ("por.1", "Primeira Liga"),
-              ("bel.1", "Belgian Pro League"),
-              ("tur.1", "Turkish Super Lig"),
-              ("sco.1", "Scottish Premiership"),
-              ("sui.1", "Swiss Super League"),
+              ("ita.2", "Serie B"),
+              ("eng.1", "Premier League"),
               ("eng.2", "Championship"),
-              ("usa.1", "MLS"),
-              ("mex.1", "Liga MX"),
-              ("bra.1", "Brasileirão"),
-              ("arg.1", "Argentina Primera"),
+              ("eng.3", "League One"),
+              ("eng.4", "League Two"),
+              ("eng.5", "National League"),
+              ("esp.1", "La Liga"),
+              ("esp.2", "Segunda"),
+              ("fra.1", "Ligue 1"),
+              ("fra.2", "Ligue 2"),
+              ("ned.1", "Eredivisie"),
+              ("tur.1", "Turkish Super Lig"),
+              ("ger.1", "Bundesliga"),
+              ("ger.2", "2. Bundesliga"),
+              # UEFA club competitions.
               ("uefa.champions", "UEFA Champions League"),
               ("uefa.europa", "UEFA Europa League"),
               ("uefa.europa.conf", "UEFA Conference League"),
               ("uefa.wchampions", "UEFA Women's Champions League"),
+              # English domestic cups and major national competitions where ESPN exposes a scoreboard.
+              ("eng.fa", "FA Cup"),
+              ("eng.league_cup", "EFL Cup"),
+              ("eng.community", "Community Shield"),
+              ("esp.copa_del_rey", "Copa del Rey"),
+              ("esp.supercopa", "Supercopa de España"),
+              ("ger.dfb_pokal", "German DFB Pokal"),
+              ("ita.coppa_italia", "Coppa Italia"),
+              ("fra.coupe_de_france", "Coupe de France"),
+              ("ned.knvb", "KNVB Cup"),
+              ("tur.cup", "Turkish Cup"),
+              # Women's top leagues for the same countries.
               ("eng.w.1", "Women's Super League"),
               ("esp.w.1", "Liga F"),
-              ("ned.w.1", "Vrouwen Eredivisie"),
               ("ger.w.1", "Frauen-Bundesliga"),
               ("fra.w.1", "Première Ligue"),
               ("ita.w.1", "Serie A Femminile"),
-              ("usa.nwsl", "NWSL"),
+              ("ned.w.1", "Vrouwen Eredivisie"),
           ]
 
           def load_espn_events():
@@ -241,13 +254,15 @@ jobs:
                       global_data = get_json(global_url, 25)
                       global_events = global_data.get("events") or []
                       allowed = {
-                          "Premier League","La Liga","Serie A","Bundesliga","Ligue 1",
-                          "Eredivisie","Primeira Liga","Belgian Pro League","Turkish Super Lig",
-                          "Scottish Premiership","Swiss Super League","Championship","MLS",
-                          "Liga MX","Brasileirão","Argentina Primera","UEFA Champions League",
-                          "UEFA Europa League","UEFA Conference League","UEFA Women's Champions League",
+                          "Premier League","Championship","League One","League Two","National League",
+                          "La Liga","Segunda","Serie A","Serie B","Bundesliga","2. Bundesliga",
+                          "Ligue 1","Ligue 2","Eredivisie","Turkish Super Lig",
+                          "UEFA Champions League","UEFA Europa League","UEFA Conference League",
+                          "UEFA Women's Champions League","FA Cup","EFL Cup","Community Shield",
+                          "Copa del Rey","Supercopa de España","German DFB Pokal","Coppa Italia",
+                          "Coupe de France","KNVB Cup","Turkish Cup",
                           "Women's Super League","Liga F","Vrouwen Eredivisie","Frauen-Bundesliga",
-                          "Première Ligue","Serie A Femminile","NWSL",
+                          "Première Ligue","Serie A Femminile",
                           "International Friendly","International Friendlies",
                           "UEFA Nations League","FIFA World Cup Qualifying",
                           "World Cup Qualifying - UEFA","World Cup Qualifying - CONMEBOL",
@@ -1252,6 +1267,49 @@ jobs:
           records = normalized_records
 
           records = merge_external_sources(records)
+
+          # Hard filter: only show competitions explicitly requested by the user.
+          # This prevents fallback providers such as TheSportsDB from injecting
+          # unrelated leagues (for example USL) into the daily feed.
+          ALLOWED_LEAGUES = {
+              "serie a", "serie b",
+              "premier league", "championship", "league one", "league two", "national league",
+              "la liga", "segunda", "segunda división", "segunda division",
+              "ligue 1", "ligue 2",
+              "eredivisie", "turkish super lig",
+              "bundesliga", "2. bundesliga",
+              "uefa champions league", "uefa europa league", "uefa conference league",
+              "uefa women's champions league",
+              "fa cup", "efl cup", "community shield",
+              "copa del rey", "supercopa de españa", "supercopa de espana",
+              "german dfb pokal", "coppa italia", "coupe de france",
+              "knvb cup", "turkish cup",
+              "women's super league", "liga f", "vrouwen eredivisie",
+              "frauen-bundesliga", "première ligue", "premiere ligue",
+              "serie a femminile",
+              "international friendly", "international friendlies",
+              "uefa nations league", "fifa world cup qualifying",
+              "world cup qualifying - uefa", "world cup qualifying - concacaf",
+              "world cup qualifying - conmebol", "world cup qualifying - afc",
+              "world cup qualifying - caf", "world cup qualifying - ofc",
+              "concacaf nations league", "copa america", "afc asian cup",
+              "africa cup of nations", "gold cup"
+          }
+
+          def allowed_league(name):
+              value = str(name or "").strip().lower()
+              if value in ALLOWED_LEAGUES:
+                  return True
+              # Accept common provider suffixes while remaining strict.
+              for suffix in (" women", " men", " - women", " - men"):
+                  base = value[:-len(suffix)].strip() if value.endswith(suffix) else value
+                  if base in ALLOWED_LEAGUES:
+                      return True
+              return False
+
+          before_filter = len(records)
+          records = [x for x in records if allowed_league(x.get("league"))]
+          print("Competition filter:", before_filter, "->", len(records), "matches")
 
           # Keyless ESPN historical scoreboards provide an independent evidence
           # family for form, so the app can distinguish statistical analysis from
