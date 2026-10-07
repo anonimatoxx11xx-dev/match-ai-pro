@@ -263,10 +263,18 @@ class Dashboard extends StatefulWidget { const Dashboard({super.key}); @override
 class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
   final service=MatchService();
   late final AnimationController pulse=AnimationController(vsync:this,duration:const Duration(seconds:3))..repeat(reverse:true);
-  List<Match> matches=[]; bool loading=true; String? error; int tab=0; Timer? refreshTimer;
+  List<Match> matches=[]; List<Match> calendarMatches=[]; bool loading=true; bool calendarLoading=true; String? error; int tab=0; Timer? refreshTimer;
   @override void initState(){super.initState();load(); refreshTimer=Timer.periodic(const Duration(minutes:1), (_) => load());}
   @override void dispose(){refreshTimer?.cancel(); pulse.dispose(); super.dispose();}
-  Future<void> load() async { if(mounted)setState(()=>loading=true); try{final m=await service.today(); if(!mounted)return; setState((){matches=m;error=null;});}catch(_){ if(!mounted)return; setState(()=>error=null); }finally{if(mounted)setState(()=>loading=false);} }
+  Future<void> load() async {
+    if(mounted)setState(()=>loading=true);
+    try{
+      final results=await Future.wait([service.today(),service.calendar()]);
+      if(!mounted)return;
+      setState(()=>{matches=results[0],calendarMatches=results[1],error=null});
+    }catch(_){if(!mounted)return;setState(()=>error=null);}
+    finally{if(mounted)setState(()=>loading=false);}
+  }
   @override Widget build(BuildContext context){
     final isMarketFeed=matches.isNotEmpty && matches.first.source.toUpperCase().contains('ESPN') && matches.every((m)=>m.proposals.every((p)=>p.contains('(market signal)') || p.contains('Conflitto evidenze'))); final strongCutoff=80; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
     return Scaffold(
@@ -279,8 +287,9 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
             const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('MATCH AI PRO',style:TextStyle(fontWeight:FontWeight.w900,fontSize:18,letterSpacing:.5)),Text('AI FOOTBALL INTELLIGENCE',style:TextStyle(fontSize:9,color:Color(0xFF9299AD),letterSpacing:1.3))])),
             IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded,color:Color(0xFFAAA1FF)))
           ])),
-          Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : matches.isEmpty ? _NoData(retry:load, emptyFeed:service.lastFeedWasValid) : IndexedStack(index:tab,children:[
+          Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : IndexedStack(index:tab,children:[
             _home(top, medium, signals, strong, isMarketFeed),
+            _calendar(),
             _all(),
             _ai(signals, strong),
           ])),
@@ -355,9 +364,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _confidence(int n){ final color=n>=80?const Color(0xFF42E89A):(n>=60?const Color(0xFFFFC857):const Color(0xFF8B7CFF)); return Container(width:52,height:52,decoration:BoxDecoration(shape:BoxShape.circle,border:Border.all(color:color,width:2)),child:Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:TextStyle(fontSize:12,fontWeight:FontWeight.w900,color:color)),Text(n==0?'INDEX':n>=80?'FORTE':n>=60?'MEDIA':'BASSA',style:TextStyle(fontSize:6,color:color,fontWeight:FontWeight.w800))]))); }
   Widget _orb(int n)=>Container(width:78,height:78,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:64,height:64,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF0B0F1C)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:7,color:Color(0xFF8D95A8)))]))));
   Widget _empty(String a,String b)=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20)),child:Column(children:[const Icon(Icons.shield_outlined,color:Color(0xFF8B7CFF),size:38),const SizedBox(height:9),Text(a,style:const TextStyle(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text(b,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11))]));
-  Widget _nav()=>Container(padding:const EdgeInsets.fromLTRB(8,7,8,7),decoration:BoxDecoration(color:const Color(0xE80A0D17),border:Border(top:BorderSide(color:Colors.white10))),child:Row(children:[
-    _navButton(0,Icons.home_rounded,'Oggi'),_navButton(1,Icons.sports_soccer_rounded,'Partite'),_navButton(2,Icons.auto_awesome,'AI')
-  ]));
+  Widget _nav()=>Container(padding:const EdgeInsets.fromLTRB(6,7,6,7),decoration:BoxDecoration(color:const Color(0xE80A0D17),border:Border(top:BorderSide(color:Colors.white10))),child:Row(children:[_navButton(0,Icons.home_rounded,'Oggi'),_navButton(1,Icons.calendar_month_rounded,'Calendario'),_navButton(2,Icons.sports_soccer_rounded,'Partite'),_navButton(3,Icons.auto_awesome,'AI')])));
+
   Widget _navButton(int i,IconData icon,String label)=>Expanded(child:GestureDetector(onTap:()=>setState(()=>tab=i),child:Container(padding:const EdgeInsets.symmetric(vertical:8),decoration:BoxDecoration(color:tab==i?const Color(0x188B7CFF):Colors.transparent,borderRadius:BorderRadius.circular(14)),child:Column(children:[Icon(icon,size:20,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687)),const SizedBox(height:3),Text(label,style:TextStyle(fontSize:9,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687),fontWeight:FontWeight.w800))]))));
 }
 
