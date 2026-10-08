@@ -354,9 +354,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ...calendarMatches.take(20).map(_calendarCard),
     ],
   ]);
-(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    _title('Partite di oggi',matches.isEmpty ? 'Feed' : 'Feed ${matches.first.source} · refresh automatico'),...matches.map(_card)
-  ]);
   Widget _ai(List<Match> signals, List<Match> strong){
     final total=matches.length;
     final withData=matches.where((m)=>m.stats.isNotEmpty || m.preMatchStats.isNotEmpty).length;
