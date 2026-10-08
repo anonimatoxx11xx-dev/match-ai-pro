@@ -277,6 +277,96 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     }catch(_){if(!mounted)return;setState(()=>error=null);}
     finally{if(mounted)setState(()=>loading=false);}
   }
+  Future<Map<String,dynamic>> _fetchHistoricalStats(Match m) async {
+    final stats=<String,dynamic>{};
+    const slugs=<String,String>{
+      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
+      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
+      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
+      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
+    };
+    final slug=slugs[m.league.toLowerCase().trim()]??'';
+    if(slug.isEmpty || m.homeTeamId==null || m.awayTeamId==null)return {'stats':stats,'source':''};
+
+    Future<List<int>> recentIds(int teamId) async {
+      try{
+        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/teams/'+teamId.toString()+'/schedule?limit=10';
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return <int>[];
+        final data=jsonDecode(res.body);
+        final events=data is Map ? data['events'] : null;
+        if(events is! List)return <int>[];
+        final rows=<Map<String,dynamic>>[];
+        for(final e in events){
+          if(e is! Map)continue;
+          final id=int.tryParse(e['id']?.toString()??'');
+          final type=e['status'] is Map ? e['status']['type'] : null;
+          final done=type is Map && (type['completed']==true || type['state'].toString().toLowerCase()=='post' || type['state'].toString().toLowerCase()=='final');
+          if(id!=null && id!=m.id && done)rows.add({'id':id,'date':e['date']??''});
+        }
+        rows.sort((a,b)=>b['date'].toString().compareTo(a['date'].toString()));
+        return rows.take(5).map((e)=>e['id'] as int).toList();
+      }catch(_){ return <int>[]; }
+    }
+
+    Future<Map<String,double>> oneGame(int eventId,int teamId) async {
+      final out=<String,double>{};
+      try{
+        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+eventId.toString();
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return out;
+        final data=jsonDecode(res.body);
+        final box=data is Map ? data['boxscore'] : null;
+        final teams=box is Map ? box['teams'] : null;
+        if(teams is! List)return out;
+        for(final team in teams){
+          if(team is! Map)continue;
+          final teamObj=team['team'];
+          final id=int.tryParse((teamObj is Map ? teamObj['id'] : null)?.toString()??'');
+          if(id!=teamId)continue;
+          final list=team['statistics'] is List ? team['statistics'] as List : const [];
+          for(final item in list){
+            if(item is! Map)continue;
+            final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+            final raw=(item['displayValue']??item['value'])?.toString()??'';
+            final number=double.tryParse(raw.replaceAll('%','').replaceAll(',','.'));
+            if(number==null)continue;
+            if(key=='shots' || key.contains('totalshots'))out['shots']=number;
+            else if(key.contains('shotsontarget'))out['on']=number;
+            else if(key.contains('corner'))out['corners']=number;
+            else if(key.contains('foul'))out['fouls']=number;
+            else if(key.contains('throw'))out['throw']=number;
+            else if(key.contains('save'))out['saves']=number;
+            else if(key.contains('yellow'))out['yellow']=number;
+            else if(key.contains('red'))out['red']=number;
+            else if(key.contains('possession'))out['possession']=number;
+          }
+        }
+      }catch(_){ }
+      return out;
+    }
+
+    final homeIds=await recentIds(m.homeTeamId!);
+    final awayIds=await recentIds(m.awayTeamId!);
+    final tasks=<Future<Map<String,double>>>[];
+    for(final id in homeIds)tasks.add(oneGame(id,m.homeTeamId!));
+    for(final id in awayIds)tasks.add(oneGame(id,m.awayTeamId!));
+    final rows=await Future.wait(tasks);
+    final homeRows=rows.take(homeIds.length).where((x)=>x.isNotEmpty).toList();
+    final awayRows=rows.skip(homeIds.length).where((x)=>x.isNotEmpty).toList();
+    void avg(List<Map<String,double>> input,String prefix){
+      for(final key in const ['shots','on','corners','fouls','throw','saves','yellow','red','possession']){
+        final values=input.map((x)=>x[key]).whereType<double>().toList();
+        if(values.isEmpty)continue;
+        stats[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse((values.reduce((a,b)=>a+b)/values.length).toStringAsFixed(1));
+      }
+    }
+    avg(homeRows,'home');
+    avg(awayRows,'away');
+    final games=homeRows.length<awayRows.length?homeRows.length:awayRows.length;
+    if(stats.isEmpty)return {'stats':stats,'source':''};
+    return {'stats':stats,'source':'ESPN · medie ultime '+games.toString()+' gare'};
+  }
   @override Widget build(BuildContext context){
     bool marketSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('(market signal)')); bool conflictSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('Conflitto evidenze')); final upcomingFeed=matches.isNotEmpty && matches.any((m)=>m.status=='NS' && m.time.contains('|')); final aiSignals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60 && !marketSignal(m) && !conflictSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final marketSignals=matches.where((m)=>m.status=='NS' && marketSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final strong=aiSignals.where((m)=>m.confidence>=80).toList(); final top=strong.take(6).toList(); final medium=aiSignals.where((m)=>m.confidence<80).take(6).toList();
     return Scaffold(
@@ -568,7 +658,10 @@ class _DetailState extends State<_Detail> {
 
   Future<void> _loadStats() async {
     if(mounted)setState(()=>loadingStats=true);
-    final result=await _fetchStats(widget.m);
+    var result=await _fetchStats(widget.m);
+    if((result['stats'] is! Map || (result['stats'] as Map).isEmpty) && widget.m.status=='NS'){
+      result=await _fetchHistoricalStats(widget.m);
+    }
     if(!mounted)return;
     setState((){
       detailStats=result['stats'] is Map ? Map<String,dynamic>.from(result['stats']) : <String,dynamic>{};
@@ -678,10 +771,11 @@ class _DetailState extends State<_Detail> {
       const SizedBox(height:16),
       Row(children:[Expanded(child:_scoreBox(m.home,m.hs)),const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF60687A),fontWeight:FontWeight.w900))),Expanded(child:_scoreBox(m.away,m.ascore))]),
       const SizedBox(height:18),
-      Row(children:[const Expanded(child:Text('STATISTICHE',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
+      Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
       if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
       if(!loadingStats && detailStats.isNotEmpty)..._statGrid(detailStats),
-      if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Le statistiche di gara saranno disponibili quando la partita inizierà.':'La fonte corrente non ha restituito statistiche dettagliate.'),
+      if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
+      if(!loadingStats && detailStats.isNotEmpty && m.status=='NS')const Padding(padding:EdgeInsets.only(top:4,bottom:6),child:Text('Medie delle ultime gare · non sono i dati della partita in programma.',style:TextStyle(color:Color(0xFF7F879A),fontSize:9))),
       if(statsSource.isNotEmpty)Padding(padding:const EdgeInsets.only(top:6),child:Text('Fonte: '+statsSource,style:const TextStyle(color:Color(0xFF6F7687),fontSize:9))),
       if(m.preMatchStats.isNotEmpty)...[
         const SizedBox(height:18),
