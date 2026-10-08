@@ -38,7 +38,7 @@ jobs:
           import re
           from curl_cffi import requests
           from concurrent.futures import ThreadPoolExecutor, as_completed
-          from datetime import datetime
+          from datetime import datetime, timedelta
           from zoneinfo import ZoneInfo
 
           TZ = ZoneInfo("Europe/Zurich")
@@ -144,11 +144,15 @@ jobs:
               status = "LIVE" if live else ("FT" if completed else "NS")
               score_home = score_value(home.get("score")) if completed or live else None
               score_away = score_value(away.get("score")) if completed or live else None
+              local_dt = datetime.fromtimestamp(timestamp, TZ) if timestamp else None
+              display_time = local_dt.strftime("%H:%M") if local_dt else "--:--"
+              if event.get("_match_ai_future_date") and local_dt:
+                  display_time = local_dt.strftime("%Y-%m-%d|%H:%M")
               return {
                   "id": as_int(event.get("id")) or 0,
                   "home": str(home_team.get("displayName") or home_team.get("name") or "Home"),
                   "away": str(away_team.get("displayName") or away_team.get("name") or "Away"),
-                  "time": datetime.fromtimestamp(timestamp, TZ).strftime("%H:%M") if timestamp else "--:--",
+                  "time": display_time,
                   "timestamp": timestamp,
                   "league": str(league),
                   "status": status,
@@ -210,8 +214,9 @@ jobs:
               ("ned.w.1", "Vrouwen Eredivisie"),
           ]
 
-          def load_espn_events():
-              date_key = ISO_DATE.replace("-", "")
+          def load_espn_events(target_date=None):
+              target_date = target_date or NOW.date()
+              date_key = target_date.strftime("%Y%m%d")
               collected = []
               urls = []
               def fetch_league(slug, label):
@@ -882,6 +887,21 @@ jobs:
                   return events, espn_url, False
               except Exception as exc:
                   last_error = exc
+
+              # When today has no selected fixtures, analyze the next available
+              # top-competition slate instead of leaving the AI tab empty.
+              for days_ahead in (1, 2):
+                  target_date = NOW.date() + timedelta(days=days_ahead)
+                  try:
+                      events, espn_url = load_espn_events(target_date)
+                      if events:
+                          for event in events:
+                              if isinstance(event, dict):
+                                  event["_match_ai_future_date"] = True
+                          print("No selected matches today; using ESPN upcoming slate:", target_date.isoformat(), len(events), "events")
+                          return events, espn_url, False
+                  except Exception as exc:
+                      last_error = exc
               raise RuntimeError("SofaScore and ESPN scheduled events unavailable: " + str(last_error))
 
           def stat_num(item, side):
