@@ -587,6 +587,98 @@ class _DetailState extends State<_Detail> {
     });
   }
 
+  Future<Map<String,dynamic>> _fetchHistoricalStats(Match m) async {
+    final stats=<String,dynamic>{};
+    const slugs=<String,String>{
+      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
+      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
+      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
+      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
+    };
+    final slug=slugs[m.league.toLowerCase().trim()]??'';
+    if(slug.isEmpty || m.homeTeamId==null || m.awayTeamId==null)return {'stats':stats,'source':''};
+
+    Future<List<int>> recentIds(int teamId) async {
+      try{
+        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/teams/'+teamId.toString()+'/schedule?limit=10';
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return <int>[];
+        final data=jsonDecode(res.body);
+        final events=data is Map ? data['events'] : null;
+        if(events is! List)return <int>[];
+        final rows=<Map<String,dynamic>>[];
+        for(final e in events){
+          if(e is! Map)continue;
+          final id=int.tryParse(e['id']?.toString()??'');
+          final type=e['status'] is Map ? e['status']['type'] : null;
+          final state=type is Map ? type['state'].toString().toLowerCase() : '';
+          final completed=type is Map && (type['completed']==true || state=='post' || state=='final');
+          if(id!=null && id!=m.id && completed)rows.add({'id':id,'date':e['date']??''});
+        }
+        rows.sort((a,b)=>b['date'].toString().compareTo(a['date'].toString()));
+        return rows.take(5).map((e)=>e['id'] as int).toList();
+      }catch(_){ return <int>[]; }
+    }
+
+    Future<Map<String,double>> oneGame(int eventId,int teamId) async {
+      final out=<String,double>{};
+      try{
+        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+eventId.toString();
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return out;
+        final data=jsonDecode(res.body);
+        final box=data is Map ? data['boxscore'] : null;
+        final teams=box is Map ? box['teams'] : null;
+        if(teams is! List)return out;
+        for(final team in teams){
+          if(team is! Map)continue;
+          final teamObj=team['team'];
+          final id=int.tryParse((teamObj is Map ? teamObj['id'] : null)?.toString()??'');
+          if(id!=teamId)continue;
+          final list=team['statistics'] is List ? team['statistics'] as List : const [];
+          for(final item in list){
+            if(item is! Map)continue;
+            final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+            final raw=(item['displayValue']??item['value'])?.toString()??'';
+            final number=double.tryParse(raw.replaceAll('%','').replaceAll(',','.'));
+            if(number==null)continue;
+            if(key=='shots' || key.contains('totalshots'))out['shots']=number;
+            else if(key.contains('shotsontarget'))out['on']=number;
+            else if(key.contains('corner'))out['corners']=number;
+            else if(key.contains('foul'))out['fouls']=number;
+            else if(key.contains('throw'))out['throw']=number;
+            else if(key.contains('save'))out['saves']=number;
+            else if(key.contains('yellow'))out['yellow']=number;
+            else if(key.contains('red'))out['red']=number;
+            else if(key.contains('possession'))out['possession']=number;
+          }
+        }
+      }catch(_){ }
+      return out;
+    }
+
+    final homeIds=await recentIds(m.homeTeamId!);
+    final awayIds=await recentIds(m.awayTeamId!);
+    final jobs=<Future<Map<String,double>>>[];
+    for(final id in homeIds)jobs.add(oneGame(id,m.homeTeamId!));
+    for(final id in awayIds)jobs.add(oneGame(id,m.awayTeamId!));
+    final rows=await Future.wait(jobs);
+    final homeRows=rows.take(homeIds.length).where((x)=>x.isNotEmpty).toList();
+    final awayRows=rows.skip(homeIds.length).where((x)=>x.isNotEmpty).toList();
+    void average(List<Map<String,double>> input,String prefix){
+      for(final key in const ['shots','on','corners','fouls','throw','saves','yellow','red','possession']){
+        final values=input.map((x)=>x[key]).whereType<double>().toList();
+        if(values.isEmpty)continue;
+        final avg=values.reduce((a,b)=>a+b)/values.length;
+        stats[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse(avg.toStringAsFixed(1));
+      }
+    }
+    average(homeRows,'home');
+    average(awayRows,'away');
+    final games=homeRows.length<awayRows.length?homeRows.length:awayRows.length;
+    if(stats.isEmpty)return {'stats':stats,'source':''};
+    return {'stats':stats,'source':'ESPN · medie ultime '+games.toString()+' gare'};
+  }
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
     final stats=<String,dynamic>{};
     var source='';
