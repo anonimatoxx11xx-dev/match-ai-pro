@@ -890,7 +890,7 @@ class _DetailState extends State<_Detail> {
     ]));
   }
 
-  Widget _projection(String label,dynamic h,dynamic a)=>Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:7),decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(10)),child:Text(label+'  '+_statText(h)+' • '+_statText(a),style:const TextStyle(color:Color(0xFFE5E8EE),fontSize:8.5,fontWeight:FontWeight.w900)));
+  Widget _projection(String label,dynamic h,dynamic a)=>Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:7),decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(10)),child:Text(label+'  '+_statNumber(_number(h)??0)+' • '+_statNumber(_number(a)??0),style:const TextStyle(color:Color(0xFFE5E8EE),fontSize:8.5,fontWeight:FontWeight.w900)));
 
   Widget _h2hPanel()=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:const Color(0xD90F1422),borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0x24FFC857))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Row(children:[const Icon(Icons.history_rounded,color:Color(0xFFFFC857),size:17),const SizedBox(width:7),const Expanded(child:Text('SCONTRI DIRETTI',style:TextStyle(color:Color(0xFFFFC857),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.9))),Text(h2hResults.length.toString()+' precedenti',style:const TextStyle(color:Color(0xFF687184),fontSize:8,fontWeight:FontWeight.w800))]),
@@ -922,7 +922,7 @@ class _DetailState extends State<_Detail> {
     return [GridView.count(
       crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.18,
       children:defs.entries.map((e){
-        final hv=v(e.value[0]),av=v(e.value[1]); final total=hv+av; final hp=total<=0?.5:hv/total; final ap=total<=0?.5:av/total;
+        final hv=v(e.value[0]),av=v(e.value[1]); final total=hv+av; final hp=total<=0 ? .5 : hv/total; final ap=total<=0 ? .5 : av/total;
         final accent=e.key=='POSSESSO'?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
         final suffix=e.key=='POSSESSO'?'%':'';
         return Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(children:[
