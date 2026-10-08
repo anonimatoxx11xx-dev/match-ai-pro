@@ -751,11 +751,6 @@ class _DetailState extends State<_Detail> {
         const SizedBox(height:8),
         Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x3042E89A))),child:Column(children:[Text(m.pick,style:const TextStyle(color:Color(0xFF42E89A),fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('Stima IA: '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900))])),
       ],
-        const SizedBox(height:16),
-        const Text('PROPOSTA IA',style:TextStyle(color:Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
-        const SizedBox(height:8),
-        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x3042E89A))),child:Column(children:[Text(m.pick,style:const TextStyle(color:Color(0xFF42E89A),fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('Stima IA: '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900))])),
-      ],
       const SizedBox(height:12),
       Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di risultato.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4)),
     ]));
