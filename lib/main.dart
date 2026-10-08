@@ -42,6 +42,7 @@ class Match {
   final Map<String,dynamic> stats;
   final String updatedAt;
   final String source;
+  final int? homeTeamId, awayTeamId;
   Match({
     required this.id,
     required this.home,
@@ -60,6 +61,8 @@ class Match {
     required this.stats,
     required this.updatedAt,
     required this.source,
+    this.homeTeamId,
+    this.awayTeamId,
   });
 }
 
@@ -217,6 +220,8 @@ class MatchService {
       stats:_map(m['stats']),
       updatedAt:updatedAt,
       source:decodedSource,
+      homeTeamId:_int(m['homeTeamId']),
+      awayTeamId:_int(m['awayTeamId']),
     );
   }
 
@@ -249,6 +254,8 @@ class MatchService {
       stats:const {},
       updatedAt:'',
       source:'SofaScore',
+      homeTeamId:_int(h['id']),
+      awayTeamId:_int(a['id']),
     );
   }
 
