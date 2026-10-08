@@ -278,7 +278,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     finally{if(mounted)setState(()=>loading=false);}
   }
   @override Widget build(BuildContext context){
-    final isMarketFeed=matches.isNotEmpty && matches.first.source.toUpperCase().contains('ESPN') && matches.every((m)=>m.proposals.every((p)=>p.contains('(market signal)') || p.contains('Conflitto evidenze'))); final analyzingUpcoming=matches.isNotEmpty && matches.any((m)=>m.time.contains('|')); final strongCutoff=80; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
+    final isMarketFeed=matches.isNotEmpty && matches.first.source.toUpperCase().contains('ESPN') && matches.every((m)=>m.proposals.every((p)=>p.contains('(market signal)') || p.contains('Conflitto evidenze'))); final strongCutoff=80; final signals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final top=signals.where((m)=>m.confidence>=strongCutoff).take(6).toList(); final medium=signals.where((m)=>m.confidence<strongCutoff).take(6).toList(); final strong=signals.where((m)=>m.confidence>=strongCutoff).toList();
     return Scaffold(
       body: Stack(children:[
         const _Background(),
@@ -311,7 +311,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ),
       child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         const Text('AI SCANNER',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:2)),
-        const SizedBox(height:7),Text(analyzingUpcoming?'Le migliori prossime\npartite.':'Le migliori partite\ndi oggi.',,style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.02)),
+        const SizedBox(height:7),const Text('Le migliori partite\ndi oggi.',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.02)),
         const SizedBox(height:8),Text('${matches.length} partite · ${signals.length} segnali · ${strong.length} forti · ${matches.isEmpty ? '—' : matches.first.source}',style:const TextStyle(color:Color(0xFF9299AD),fontSize:12)),
         const SizedBox(height:18),Row(children:[
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
@@ -356,7 +356,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     ]));
   }
   Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    _title(analyzingUpcoming?'Prossime partite analizzate':'Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed '+matches.first.source+' · refresh automatico'),
+    _title('Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed '+matches.first.source+' · refresh automatico'),
     if(matches.isNotEmpty) ...matches.map(_card),
     if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
       _title('Prossime partite','Calendario selezionato'),
@@ -393,9 +393,9 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   }
   Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
   Widget _title(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(2,22,2,9),child:Row(children:[Expanded(child:Text(a,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Text(b,style:const TextStyle(fontSize:9,color:Color(0xFF7E8598)))]));
-  Widget _card(Match m){ final displayTime=m.time.contains('|')?m.time.split('|').last:m.time; return GestureDetector(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF0A0D17),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xD9121724),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(children:[
-    Row(children:[Expanded(child:Text(m.league.toUpperCase(),style:const TextStyle(fontSize:9,color:Color(0xFF858DA0),letterSpacing:.8,fontWeight:FontWeight.w800))),Text(m.live?'LIVE':m.status=='FT'?'FT':displayTime,style:TextStyle(fontSize:10,color:m.live?const Color(0xFFFF5D73):const Color(0xFFB8BECC),fontWeight:FontWeight.w900))]),
-    const SizedBox(height:12),Row(children:[Expanded(child:Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800))),Column(children:[Text(m.status!='NS'&&m.hs!=null&&m.ascore!=null?'${m.hs} - ${m.ascore}':displayTime,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900)),const Text('VS',style:TextStyle(fontSize:8,color:Color(0xFF60687A)))]),Expanded(child:Text(m.away,textAlign:TextAlign.right,style:const TextStyle(fontWeight:FontWeight.w800)))]),
+  Widget _card(Match m)=>GestureDetector(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF0A0D17),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xD9121724),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(children:[
+    Row(children:[Expanded(child:Text(m.league.toUpperCase(),style:const TextStyle(fontSize:9,color:Color(0xFF858DA0),letterSpacing:.8,fontWeight:FontWeight.w800))),Text(m.live?'LIVE':m.status=='FT'?'FT':m.time,style:TextStyle(fontSize:10,color:m.live?const Color(0xFFFF5D73):const Color(0xFFB8BECC),fontWeight:FontWeight.w900))]),
+    const SizedBox(height:12),Row(children:[Expanded(child:Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800))),Column(children:[Text(m.status!='NS'&&m.hs!=null&&m.ascore!=null?'${m.hs} - ${m.ascore}':m.time,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900)),const Text('VS',style:TextStyle(fontSize:8,color:Color(0xFF60687A)))]),Expanded(child:Text(m.away,textAlign:TextAlign.right,style:const TextStyle(fontWeight:FontWeight.w800)))]),
     const SizedBox(height:12),Row(children:[Expanded(child:Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:m.proposals.isEmpty?const Color(0x121AA8D8):const Color(0x1242E89A),borderRadius:BorderRadius.circular(13),border:Border.all(color:m.proposals.isEmpty?const Color(0x3039D9FF):const Color(0x3042E89A))),child:Text(m.pick,style:TextStyle(color:m.proposals.isEmpty?const Color(0xFF7FDBFF):const Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900)))),const SizedBox(width:10),_confidence(m.confidence)])
   ])));
   Widget _confidence(int n){ final color=n>=80?const Color(0xFF42E89A):(n>=60?const Color(0xFFFFC857):const Color(0xFF8B7CFF)); return Container(width:52,height:52,decoration:BoxDecoration(shape:BoxShape.circle,border:Border.all(color:color,width:2)),child:Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:TextStyle(fontSize:12,fontWeight:FontWeight.w900,color:color)),Text(n==0?'INDEX':n>=80?'FORTE':n>=60?'MEDIA':'BASSA',style:TextStyle(fontSize:6,color:color,fontWeight:FontWeight.w800))]))); }
