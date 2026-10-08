@@ -387,31 +387,34 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   ]);
   Widget _ai(List<Match> signals, List<Match> strong, List<Match> marketSignals, bool upcomingFeed){
     final total=matches.length;
-    final withData=matches.where((m)=>m.stats.isNotEmpty || m.preMatchStats.isNotEmpty).length;
+    final withStats=matches.where((m)=>m.stats.isNotEmpty).length;
     final withAi=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && !m.proposals.every((p)=>p.contains('(market signal)'))).length;
+    final realStatValues=matches.fold<int>(0,(sum,m)=>sum+m.stats.length);
     final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
-    final source=matches.isEmpty?'Feed':matches.first.source;
-    final coverage=total==0?0.0:withData/total;
+    final sources=<String>{};
+    for(final m in matches){ if(m.source.trim().isNotEmpty) sources.add(m.source.trim()); }
+    final sourceCount=sources.length;
+    final coverage=total==0?0.0:withStats/total;
     final aiCoverage=total==0?0.0:withAi/total;
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       _title('AI CENTER',upcomingFeed?'Analisi prossime partite':'Analisi e qualità dati'),
       Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Row(children:[const Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),const SizedBox(width:10),const Expanded(child:Text('Motore decisionale multi-fonte',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900)))]),
         const SizedBox(height:6),
-        const Text('La percentuale della previsione viene mostrata dentro ogni partita. Qui misuriamo solo la qualità del dataset.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35)),
+        const Text('La percentuale della previsione viene mostrata dentro ogni partita. Qui misuriamo qualità e copertura dei dati reali, senza trasformare le proiezioni in statistiche.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35)),
         const SizedBox(height:14),
-        _metric('Copertura statistiche',coverage),
+        _metric('Partite con statistiche reali',coverage),
         _metric('Partite con analisi IA',aiCoverage),
         _metric('Feed aggiornato',freshness),
         const SizedBox(height:12),
         Row(children:[
-          Expanded(child:_qualityBadge('DATI',withData,total,Colors.cyan)),
+          Expanded(child:_qualityBadge('STAT',withStats,total,Colors.cyan)),
           const SizedBox(width:8),
-          Expanded(child:_qualityBadge('IA',withAi,total,const Color(0xFF42E89A))),
+          Expanded(child:_qualityBadge('VALORI',realStatValues,total,const Color(0xFF42E89A))),
           const SizedBox(width:8),
-          Expanded(child:_qualityBadge('FONTI',source.contains('Sofa')?2:1,total,const Color(0xFFA9A0FF))),
+          Expanded(child:_qualityBadge('FONTI',sourceCount, total, const Color(0xFFA9A0FF))),
         ]),
         const SizedBox(height:12),
         Text(marketSignals.isNotEmpty?'I segnali di mercato sono separati dalle previsioni IA. L’IA usa forma recente, scontri diretti e indicatori statistici quando disponibili.':'L’IA combina forma recente, scontri diretti e indicatori offensivi quando i dati sono disponibili. I valori stimati sono marcati come proiezioni.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
@@ -850,14 +853,14 @@ class _DetailState extends State<_Detail> {
         if(m.status=='NS')Padding(
           padding:const EdgeInsets.only(bottom:7),
           child:Row(children:[
-            const Expanded(child:Text('STATISTICHE + PROIEZIONI · MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
+            const Expanded(child:Text('DATI REALI + PROIEZIONI IA · MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
             Text(statsStatus,style:const TextStyle(color:Color(0xFF6F7687),fontSize:8,fontWeight:FontWeight.w800)),
           ]),
         ),
         ..._statGrid(detailStats),
         const Padding(
           padding:EdgeInsets.only(top:7,bottom:2),
-          child:Text('◆ = dato disponibile dalla fonte · ✦ = proiezione IA quando il dato storico specifico non è disponibile.',style:TextStyle(color:Color(0xFF6F7687),fontSize:8,height:1.3)),
+          child:Text('◆ = dato reale disponibile dalla fonte · ✦ = proiezione IA usata solo quando il dato storico specifico non è disponibile.',style:TextStyle(color:Color(0xFF6F7687),fontSize:8,height:1.3)),
         ),
       ],
       if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
