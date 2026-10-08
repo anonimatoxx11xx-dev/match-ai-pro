@@ -409,9 +409,11 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _calendar(){
     final groups=<String,List<Match>>{};
     for(final m in globalCalendarMatches){
-      if(m.status=='FT')continue;
+      if(m.status=='FT') continue;
       final raw=m.time.split('|').first;
-      if(!RegExp(r'^\\d{4}-\\d{2}-\\d{2}
+      if(!RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(raw)) continue;
+      groups.putIfAbsent(raw,()=>[]).add(m);
+    }
     final days=groups.keys.toList()..sort();
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       const Text('Calendario',style:TextStyle(fontSize:26,fontWeight:FontWeight.w900)),
@@ -420,16 +422,20 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       const SizedBox(height:4),
       const Text('Oggi + prossimi 14 giorni',style:TextStyle(color:Color(0xFF6F7687),fontSize:10)),
       const SizedBox(height:14),
-      if(days.isEmpty)const Padding(padding:EdgeInsets.only(top:80),child:Center(child:Text('Nessuna prossima partita disponibile',style:TextStyle(fontWeight:FontWeight.w800)))),
+      if(days.isEmpty) const Padding(padding:EdgeInsets.only(top:80),child:Center(child:Text('Nessuna prossima partita disponibile',style:TextStyle(fontWeight:FontWeight.w800)))),
       for(final day in days)...[
         Padding(padding:const EdgeInsets.only(top:14,bottom:8),child:Text(day,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
-        ...groups[day]!.map((m)=>Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF0F1422),borderRadius:BorderRadius.circular(18)),child:Row(children:[
-          SizedBox(width:55,child:Text(m.time.contains('|')?m.time.split('|').last:m.time,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
-          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF7F879B),fontWeight:FontWeight.w800)),
-            const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800))
-          ]))
-        ])))
+        ...groups[day]!.map((m){
+          final parts=m.time.split('|');
+          final time=parts.length>1 ? parts.last : m.time;
+          return Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF0F1422),borderRadius:BorderRadius.circular(18)),child:Row(children:[
+            SizedBox(width:60,child:Text(time,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
+            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+              Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF7F879B),fontWeight:FontWeight.w800)),
+              const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800))
+            ]))
+          ]));
+        })
       ]
     ]);
   }
