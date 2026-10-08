@@ -405,12 +405,97 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final parts=m.time.split('|');
     final displayDate=parts.length>1 ? parts.first : '';
     final displayTime=parts.length>1 ? parts.last : m.time;
-    return GestureDetector(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF0A0D17),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xD9121724),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(children:[
-      Row(children:[Expanded(child:Text(m.league.toUpperCase(),style:const TextStyle(fontSize:9,color:Color(0xFF858DA0),letterSpacing:.8,fontWeight:FontWeight.w800))),Text(m.live?'LIVE':m.status=='FT'?'FT':(displayDate.isNotEmpty?displayDate+' '+displayTime:displayTime),style:TextStyle(fontSize:10,color:m.live?const Color(0xFFFF5D73):const Color(0xFFB8BECC),fontWeight:FontWeight.w900))]),
-      const SizedBox(height:12),Row(children:[Expanded(child:Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800))),Column(children:[Text(m.status!='NS'&&m.hs!=null&&m.ascore!=null?'${m.hs} - ${m.ascore}':displayTime,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900)),const Text('VS',style:TextStyle(fontSize:8,color:Color(0xFF60687A)))]),Expanded(child:Text(m.away,textAlign:TextAlign.right,style:const TextStyle(fontWeight:FontWeight.w800)))]),
-      const SizedBox(height:12),Row(children:[Expanded(child:Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:m.proposals.isEmpty?const Color(0x121AA8D8):const Color(0x1242E89A),borderRadius:BorderRadius.circular(13),border:Border.all(color:m.proposals.isEmpty?const Color(0x3039D9FF):const Color(0x3042E89A))),child:Text(m.pick,style:TextStyle(color:m.proposals.isEmpty?const Color(0xFF7FDBFF):const Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900)))),const SizedBox(width:10),_confidence(m.confidence)])
-    ]));
+    final headerTime=m.live ? 'LIVE' : (m.status=='FT' ? 'FT' : (displayDate.isNotEmpty ? displayDate+' '+displayTime : displayTime));
+    final scoreText=m.status!='NS' && m.hs!=null && m.ascore!=null ? '${m.hs} - ${m.ascore}' : displayTime;
+    return GestureDetector(
+      onTap:()=>showModalBottomSheet(
+        context:context,
+        isScrollControlled:true,
+        backgroundColor:const Color(0xFF0A0D17),
+        builder:(_)=>_Detail(m),
+      ),
+      child:Container(
+        margin:const EdgeInsets.only(bottom:10),
+        padding:const EdgeInsets.all(15),
+        decoration:BoxDecoration(
+          color:const Color(0xD9121724),
+          borderRadius:BorderRadius.circular(20),
+          border:Border.all(color:Colors.white10),
+        ),
+        child:Column(
+          children:[
+            Row(
+              children:[
+                Expanded(
+                  child:Text(
+                    m.league.toUpperCase(),
+                    style:const TextStyle(fontSize:9,color:Color(0xFF858DA0),letterSpacing:.8,fontWeight:FontWeight.w800),
+                  ),
+                ),
+                Text(
+                  headerTime,
+                  style:TextStyle(
+                    fontSize:10,
+                    color:m.live?const Color(0xFFFF5D73):const Color(0xFFB8BECC),
+                    fontWeight:FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height:12),
+            Row(
+              children:[
+                Expanded(
+                  child:Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),
+                ),
+                Column(
+                  children:[
+                    Text(scoreText,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900)),
+                    const Text('VS',style:TextStyle(fontSize:8,color:Color(0xFF60687A))),
+                  ],
+                ),
+                Expanded(
+                  child:Text(
+                    m.away,
+                    textAlign:TextAlign.right,
+                    style:const TextStyle(fontWeight:FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height:12),
+            Row(
+              children:[
+                Expanded(
+                  child:Container(
+                    padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),
+                    decoration:BoxDecoration(
+                      color:m.proposals.isEmpty?const Color(0x121AA8D8):const Color(0x1242E89A),
+                      borderRadius:BorderRadius.circular(13),
+                      border:Border.all(
+                        color:m.proposals.isEmpty?const Color(0x3039D9FF):const Color(0x3042E89A),
+                      ),
+                    ),
+                    child:Text(
+                      m.pick,
+                      style:TextStyle(
+                        color:m.proposals.isEmpty?const Color(0xFF7FDBFF):const Color(0xFF42E89A),
+                        fontSize:12,
+                        fontWeight:FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width:10),
+                _confidence(m.confidence),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
+
   Widget _confidence(int n){ final color=n>=80?const Color(0xFF42E89A):(n>=60?const Color(0xFFFFC857):const Color(0xFF8B7CFF)); return Container(width:52,height:52,decoration:BoxDecoration(shape:BoxShape.circle,border:Border.all(color:color,width:2)),child:Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:TextStyle(fontSize:12,fontWeight:FontWeight.w900,color:color)),Text(n==0?'INDEX':n>=80?'FORTE':n>=60?'MEDIA':'BASSA',style:TextStyle(fontSize:6,color:color,fontWeight:FontWeight.w800))]))); }
   Widget _orb(int n)=>Container(width:78,height:78,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:64,height:64,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF0B0F1C)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:7,color:Color(0xFF8D95A8)))]))));
   Widget _empty(String a,String b)=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20)),child:Column(children:[const Icon(Icons.shield_outlined,color:Color(0xFF8B7CFF),size:38),const SizedBox(height:9),Text(a,style:const TextStyle(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text(b,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11))]));
