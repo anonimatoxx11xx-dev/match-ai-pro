@@ -596,6 +596,7 @@ class _DetailState extends State<_Detail> {
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
     final out=<String,dynamic>{};
     var source='';
+    if(m.status=='NS' && m.stats.isNotEmpty)return {'stats':Map<String,dynamic>.from(m.stats),'source':'Feed · medie ultime gare'};
     if(m.stats.isNotEmpty){ out.addAll(m.stats); source='Feed'; }
     const slugs=<String,String>{
       'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
@@ -745,11 +746,24 @@ class _DetailState extends State<_Detail> {
         ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:6),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
       ],
       if(m.proposals.isNotEmpty)...[
-        Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text('TOP PROBABILITÀ · '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
-        const SizedBox(height:16),
-        const Text('PROPOSTA IA',style:TextStyle(color:Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
-        const SizedBox(height:8),
-        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x3042E89A))),child:Column(children:[Text(m.pick,style:const TextStyle(color:Color(0xFF42E89A),fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('Stima IA: '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900))])),
+        Builder(builder:(context){
+          final marketOnly=m.proposals.every((p)=>p.contains('(market signal)'));
+          return Column(children:[
+            if(!marketOnly) ...[
+              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text('TOP PROBABILITÀ IA · '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
+            ] else ...[
+              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x181F8BFF),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x4439D9FF))),child:Row(children:[const Icon(Icons.show_chart_rounded,color:Color(0xFF39D9FF),size:18),const SizedBox(width:8),const Text('SEGNALE DI MERCATO',style:TextStyle(color:Color(0xFF39D9FF),fontSize:11,fontWeight:FontWeight.w900))])),
+            ],
+            const SizedBox(height:16),
+            Text(marketOnly?'SEGNALE MERCATO':'PROPOSTA IA',style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
+            const SizedBox(height:8),
+            Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:marketOnly?const Color(0x121AA8D8):const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:marketOnly?const Color(0x3039D9FF):const Color(0x3042E89A))),child:Column(children:[
+              Text(m.pick,style:TextStyle(color:marketOnly?const Color(0xFF7FDBFF):const Color(0xFF42E89A),fontWeight:FontWeight.w900)),
+              const SizedBox(height:7),
+              Text(marketOnly?'Indice mercato: '+m.confidence.toString()+'/100':'Probabilità stimata IA: '+m.confidence.toString()+'%',style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900)),
+            ])),
+          ]);
+        }),
       ],
       const SizedBox(height:12),
       Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di risultato.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4)),
@@ -766,7 +780,7 @@ class _DetailState extends State<_Detail> {
         const SizedBox(height:5),Text(label,style:const TextStyle(color:Color(0xFF80889B),fontSize:9,fontWeight:FontWeight.w800)),
       ]));
     }
-    return [cell('TIRI','homeShots','awayShots'),cell('TIRI IN PORTA','homeOn','awayOn'),cell('ANGOLI','homeCorners','awayCorners'),cell('FALLI','homeFouls','awayFouls'),cell('RIMESSE LATERALI','homeThrow','awayThrow'),cell('PARATE','homeSaves','awaySaves'),cell('CARTELLINI GIALLI','homeYellow','awayYellow'),cell('CARTELLINI ROSSI','homeRed','awayRed'),cell('POSSESSO','homePossession','awayPossession')].where((w)=>w is! SizedBox).toList();
+    return [cell('TIRI','homeShots','awayShots'),cell('TIRI IN PORTA','homeOn','awayOn'),cell('ANGOLI','homeCorners','awayCorners'),cell('FALLI','homeFouls','awayFouls'),cell('RIMESSE LATERALI','homeThrow','awayThrow'),cell('PARATE','homeSaves','awaySaves'),cell('CARTELLINI GIALLI','homeYellow','awayYellow'),cell('CARTELLINI ROSSI','homeRed','awayRed'),cell('FUORIGIOCO','homeOffsides','awayOffsides'),cell('TIRI BLOCCATI','homeBlocked','awayBlocked'),cell('CONTRASTI','homeTackles','awayTackles'),cell('SPAZZATE','homeClearances','awayClearances'),cell('POSSESSO','homePossession','awayPossession')].where((w)=>w is! SizedBox).toList();
   }
 
   Widget _emptyStats(String message)=>Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Row(children:[const Icon(Icons.insights_rounded,color:Color(0xFF8B7CFF)),const SizedBox(width:10),Expanded(child:Text(message,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)))]));
