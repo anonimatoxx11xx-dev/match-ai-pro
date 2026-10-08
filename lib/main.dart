@@ -360,7 +360,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     ]));
   }
   Widget _all(bool upcomingFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    _title(upcomingFeed?'Prossime partite':'Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed '+matches.first.source+' · refresh automatico'),
+    _title(upcomingFeed?'Prossime partite':'Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed ${matches.first.source} · refresh automatico'),
     if(matches.isNotEmpty) ...matches.map(_card),
     if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
       _title('Prossime partite','Calendario selezionato'),
@@ -374,7 +374,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
     final source=matches.isEmpty?'Feed':matches.first.source;
-    final marketOnly=source.toUpperCase().contains('ESPN') && signals.isNotEmpty && signals.every((m)=>m.proposals.every((p)=>p.contains('(market signal)') || p.contains('Conflitto evidenze')));
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       _title('AI CENTER',upcomingFeed?'Analisi prossime partite':'Analisi e qualità dati'),
       Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -405,7 +404,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final parts=m.time.split('|');
     final displayDate=parts.length>1 ? parts.first : '';
     final displayTime=parts.length>1 ? parts.last : m.time;
-    final headerTime=m.live ? 'LIVE' : (m.status=='FT' ? 'FT' : (displayDate.isNotEmpty ? displayDate+' '+displayTime : displayTime));
+    final headerTime=m.live ? 'LIVE' : (m.status=='FT' ? 'FT' : (displayDate.isNotEmpty ? '$displayDate $displayTime' : displayTime));
     final scoreText=m.status!='NS' && m.hs!=null && m.ascore!=null ? '${m.hs} - ${m.ascore}' : displayTime;
     return GestureDetector(
       onTap:()=>showModalBottomSheet(
@@ -557,7 +556,7 @@ class _Detail extends StatelessWidget {
       const SizedBox(height:15),Row(children:[Expanded(child:_box('AI Index',m.confidence==0?'—':'${m.confidence}/100')),const SizedBox(width:9),Expanded(child:_box('Proposta',m.proposals.isNotEmpty?'DISPONIBILE':'NESSUNA'))])
     ])),const SizedBox(height:12),Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di vincita.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4))
   ]));
-  Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'${n}',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
+  Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
   Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withValues(alpha:.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
 }
 
