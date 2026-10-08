@@ -301,7 +301,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     );
   }
   Widget _home(List<Match> top, List<Match> medium, List<Match> signals, List<Match> strong, bool isMarketFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
+    if(matches.isEmpty && calendarMatches.isNotEmpty) _upcomingHome(),
+    if(matches.isNotEmpty) AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
       padding:const EdgeInsets.all(20),decoration:BoxDecoration(
         borderRadius:BorderRadius.circular(28),
         gradient:LinearGradient(colors:[const Color(0xFF171A30).withValues(alpha:.96),const Color(0xFF0E1525).withValues(alpha:.96)]),
@@ -328,9 +329,32 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       _title('📊 Segnali monitorati','Confidenza media · non forti'),
       ...medium.map((m)=>_card(m)),
     ],
-    if(top.isEmpty && medium.isEmpty) _empty('Nessuna proposta disponibile','Il feed non contiene ancora dati sufficienti per proporre una selezione.')
+    if(top.isEmpty && medium.isEmpty && matches.isNotEmpty) _empty('Nessuna proposta disponibile','Il motore non ha ancora evidenze sufficienti per una selezione affidabile.'),
+    if(matches.isEmpty && calendarMatches.isEmpty) _empty('Feed in aggiornamento','Riprova tra poco: il calendario e il feed vengono aggiornati automaticamente.')
   ]);
+  Widget _upcomingHome()=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Text('Prossime partite selezionate',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.05)),
+    const SizedBox(height:7),
+    const Text('Il feed di oggi è vuoto: ecco i prossimi incontri dei campionati che hai scelto.',style:TextStyle(color:Color(0xFF9299AD),fontSize:12)),
+    const SizedBox(height:14),
+    ...calendarMatches.take(6).map(_calendarCard),
+  ]);
+  Widget _calendarCard(Match m)=>Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xD9121724),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Row(children:[
+    SizedBox(width:58,child:Text(m.time,style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:12,fontWeight:FontWeight.w900))),
+    Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF858DA0),letterSpacing:.8,fontWeight:FontWeight.w800)),
+      const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800)),
+    ])),
+  ]));
   Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+    _title('Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed '+matches.first.source+' · refresh automatico'),
+    if(matches.isNotEmpty) ...matches.map(_card),
+    if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
+      _title('Prossime partite','Calendario selezionato'),
+      ...calendarMatches.take(20).map(_calendarCard),
+    ],
+  ]);
+(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title('Partite di oggi',matches.isEmpty ? 'Feed' : 'Feed ${matches.first.source} · refresh automatico'),...matches.map(_card)
   ]);
   Widget _ai(List<Match> signals, List<Match> strong){
@@ -353,7 +377,12 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         Text(marketOnly?'Il feed corrente usa segnali ESPN di mercato. I segnali mercato non vengono presentati come previsioni IA validate.':'Le proposte combinano dati disponibili, forma recente e mercato quando presente. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
-      ...(strong.isNotEmpty ? strong.map(_card) : signals.take(6).map(_card))
+      if(strong.isNotEmpty) ...strong.map(_card) else ...signals.take(6).map(_card),
+      if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
+        _title('📅 Prossime analisi','Partite selezionate'),
+        _empty('Nessuna proposta per oggi','Il motore aspetta dati statistici sufficienti. Le prossime partite sono già nel calendario e verranno analizzate quando il feed sarà disponibile.'),
+        ...calendarMatches.take(8).map(_calendarCard),
+      ],
     ]);
   }
   Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
