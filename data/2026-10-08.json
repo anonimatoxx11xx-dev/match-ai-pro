@@ -1,1 +1,1 @@
-{"source":"ESPN + multi-source fallback","sourceUrl":"https://site.api.espn.com/apis/site/v2/sports/soccer/bra.1/scoreboard?dates=20261007&limit=1000","sources":["ESPN"],"date":"2026-10-08","updatedAt":"2026-10-08T01:43:56.212256+02:00","feedStatus":"DEGRADED","matches":[]}
+{"source":"ESPN + multi-source fallback","sourceUrl":"https://site.api.espn.com/apis/site/v2/sports/soccer/bra.1/scoreboard?dates=20261007&limit=1000","sources":["ESPN"],"date":"2026-10-08","updatedAt":"2026-10-08T05:01:01.696523+02:00","feedStatus":"DEGRADED","matches":[]}
