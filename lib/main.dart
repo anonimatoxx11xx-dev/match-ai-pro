@@ -324,15 +324,15 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ])
     )),
     _title('🔥 Proposte IA',upcomingFeed?'Analisi delle prossime partite':'Selezione multi-fonte'),
-    ...top.map((m)=>_card(m)),
+    ..._leagueSections(top, _card),
     if(top.isEmpty && medium.isNotEmpty) ...[
       _title('📊 Segnali monitorati','Confidenza media · non forti'),
-      ...medium.map((m)=>_card(m)),
+      ..._leagueSections(medium, _card),
     ],
     if(top.isEmpty && medium.isEmpty && matches.isNotEmpty) _empty('Nessuna proposta IA forte','Il motore ha solo segnali di mercato o conflitti di evidenza; non li presenta come previsione IA.'),
     if(marketSignals.isNotEmpty) ...[
       _title('📈 Segnali mercato','Separati dalle proposte IA'),
-      ...marketSignals.take(3).map(_card),
+      ..._leagueSections(marketSignals.take(3).toList(), _card),
     ],
     if(matches.isEmpty && calendarMatches.isEmpty) _empty('Feed in aggiornamento','Riprova tra poco: il calendario e il feed vengono aggiornati automaticamente.')
   ]);
@@ -361,10 +361,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   }
   Widget _all(bool upcomingFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title(upcomingFeed?'Prossime partite':'Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed ${matches.first.source} · refresh automatico'),
-    if(matches.isNotEmpty) ...matches.map(_card),
+    if(matches.isNotEmpty) ..._leagueSections(matches, _card),
     if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
       _title('Prossime partite','Calendario selezionato'),
-      ...calendarMatches.take(20).map(_calendarCard),
+      ..._leagueSections(calendarMatches.take(20).toList(), _calendarCard),
     ],
   ]);
   Widget _ai(List<Match> signals, List<Match> strong, List<Match> marketSignals, bool upcomingFeed){
@@ -386,10 +386,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         Text(marketSignals.isNotEmpty?'I segnali di mercato sono mostrati separatamente. Le proposte IA richiedono evidenze statistiche/forma e non vengono confuse con quote di mercato.':'Le proposte combinano dati disponibili, forma recente e mercato quando presente. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
-      if(strong.isNotEmpty) ...strong.map(_card) else ...signals.take(6).map(_card),
+      if(strong.isNotEmpty) ..._leagueSections(strong, _card) else ..._leagueSections(signals.take(6).toList(), _card),
       if(marketSignals.isNotEmpty) ...[
         _title('📈 Segnali mercato','Non classificati come IA forte'),
-        ...marketSignals.take(4).map(_card),
+        ..._leagueSections(marketSignals.take(4).toList(), _card),
       ],
       if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
         _title('📅 Prossime analisi','Partite selezionate'),
@@ -397,6 +397,22 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         ...calendarMatches.take(8).map(_calendarCard),
       ],
     ]);
+  }
+  List<Widget> _leagueSections(List<Match> items, Widget Function(Match) builder){
+    final groups=<String,List<Match>>{};
+    for(final m in items){ groups.putIfAbsent(m.league,()=>[]).add(m); }
+    final leagues=groups.keys.toList()..sort();
+    final out=<Widget>[];
+    for(final league in leagues){
+      out.add(Padding(padding:const EdgeInsets.fromLTRB(2,12,2,7),child:Row(children:[
+        const Icon(Icons.emoji_events_rounded,size:15,color:Color(0xFFA9A0FF)),
+        const SizedBox(width:7),
+        Expanded(child:Text(league.toUpperCase(),style:const TextStyle(fontSize:11,color:Color(0xFF9C96B8),fontWeight:FontWeight.w900,letterSpacing:.7))),
+        Text(groups[league]!.length.toString()+' partite',style:const TextStyle(fontSize:9,color:Color(0xFF6F7687))),
+      ])));
+      out.addAll(groups[league]!.map(builder));
+    }
+    return out;
   }
   Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
   Widget _title(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(2,22,2,9),child:Row(children:[Expanded(child:Text(a,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Text(b,style:const TextStyle(fontSize:9,color:Color(0xFF7E8598)))]));
@@ -537,29 +553,168 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   }
 }
 
-class _Detail extends StatelessWidget {
-  final Match m; const _Detail(this.m);
-  @override Widget build(BuildContext context)=>DraggableScrollableSheet(expand:false,initialChildSize:.78,minChildSize:.55,maxChildSize:.94,builder:(_,c)=>ListView(controller:c,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
-    Center(child:Container(width:40,height:4,decoration:BoxDecoration(color:Colors.white24,borderRadius:BorderRadius.circular(8)))),const SizedBox(height:20),
-    Text(m.league.toUpperCase(),textAlign:TextAlign.center,style:const TextStyle(fontSize:9,color:Color(0xFF8B93A5),letterSpacing:1.2)),
-    const SizedBox(height:10),Text('${m.home}  vs  ${m.away}',textAlign:TextAlign.center,style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
-    const SizedBox(height:18),Center(child:_score(m.confidence)),
-    const SizedBox(height:18),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      const Text('PERCHÉ L’IA LO PROPONE',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1)),
-      const SizedBox(height:10),Text(m.reason,style:const TextStyle(fontSize:14,height:1.4)),
-      if(m.preMatchStats.isNotEmpty) ...[
-        const SizedBox(height:14),
-        const Text('DATI PRE-MATCH',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
-        const SizedBox(height:7),
-        ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:5),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
-      ],
-      const SizedBox(height:15),Row(children:[Expanded(child:_box('AI Index',m.confidence==0?'—':'${m.confidence}/100')),const SizedBox(width:9),Expanded(child:_box('Proposta',m.proposals.isNotEmpty?'DISPONIBILE':'NESSUNA'))])
-    ])),const SizedBox(height:12),Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di vincita.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4))
-  ]));
-  Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
-  Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withValues(alpha:.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
+class _Detail extends StatefulWidget {
+  final Match m;
+  const _Detail(this.m);
+  @override State<_Detail> createState()=>_DetailState();
 }
 
+class _DetailState extends State<_Detail> {
+  bool loadingStats=true;
+  Map<String,dynamic> detailStats={};
+  String statsSource='';
+
+  @override void initState(){ super.initState(); _loadStats(); }
+
+  Future<void> _loadStats() async {
+    if(mounted)setState(()=>loadingStats=true);
+    final result=await _fetchStats(widget.m);
+    if(!mounted)return;
+    setState((){
+      detailStats=result['stats'] is Map ? Map<String,dynamic>.from(result['stats']) : <String,dynamic>{};
+      statsSource=result['source']?.toString()??'';
+      loadingStats=false;
+    });
+  }
+
+  Future<Map<String,dynamic>> _fetchStats(Match m) async {
+    final stats=<String,dynamic>{};
+    var source='';
+    final map=<String,String>{
+      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
+      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
+      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
+      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
+    };
+    if(m.source.toUpperCase().contains('ESPN')){
+      final slug=map[m.league.toLowerCase().trim()]??'';
+      if(slug.isNotEmpty){
+        try{
+          final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+m.id.toString();
+          final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:12));
+          if(res.statusCode==200){
+            final data=jsonDecode(res.body);
+            final box=data is Map ? data['boxscore'] : null;
+            final teams=box is Map ? box['teams'] : null;
+            if(teams is List){
+              for(final t in teams){
+                if(t is! Map)continue;
+                final side=t['homeAway']?.toString();
+                final prefix=side=='home'?'home':'away';
+                final list=t['statistics'] is List ? t['statistics'] as List : const [];
+                for(final item in list){
+                  if(item is! Map)continue;
+                  final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+                  final value=item['displayValue']??item['value'];
+                  if(key.contains('shotsontarget'))stats[prefix+'On']=value;
+                  else if(key=='shots' || key.contains('totalshots'))stats[prefix+'Shots']=value;
+                  else if(key.contains('corner'))stats[prefix+'Corners']=value;
+                  else if(key.contains('foul'))stats[prefix+'Fouls']=value;
+                  else if(key.contains('throw'))stats[prefix+'Throw']=value;
+                  else if(key.contains('save'))stats[prefix+'Saves']=value;
+                  else if(key.contains('yellow'))stats[prefix+'Yellow']=value;
+                  else if(key.contains('red'))stats[prefix+'Red']=value;
+                  else if(key.contains('possession'))stats[prefix+'Possession']=value;
+                }
+              }
+              if(stats.isNotEmpty)source='ESPN';
+            }
+          }
+        }catch(_){ }
+      }
+    }
+    if(m.source.toUpperCase().contains('SOFASCORE') && m.id>0){
+      for(final base in const ['https://api.sofascore.app/api/v1/event/','https://www.sofascore.com/api/v1/event/']){
+        try{
+          final res=await http.get(Uri.parse(base+m.id.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:12));
+          if(res.statusCode!=200)continue;
+          final data=jsonDecode(res.body);
+          final periods=data is Map ? data['statistics'] : null;
+          if(periods is! List)continue;
+          Map? all;
+          for(final p in periods){ if(p is Map && p['period']=='ALL'){ all=p; break; } }
+          if(all==null)continue;
+          final items=<Map>[];
+          final groups=all?['groups'];
+          if(groups is List){ for(final g in groups){ if(g is Map && g['statisticsItems'] is List){ items.addAll((g['statisticsItems'] as List).whereType<Map>()); } } }
+          int? val(Map item,String side){ final raw=item[side+'Value']??item[side]; return raw is num ? raw.toInt() : int.tryParse(raw?.toString()??''); }
+          void pair(Set<String> names,String h,String a){
+            for(final item in items){
+              final key=(item['key']??'').toString().toLowerCase();
+              final name=(item['name']??'').toString().toLowerCase();
+              if(names.any((n)=>key==n || name==n || key.contains(n) || name.contains(n))){
+                final hv=val(item,'home'); final av=val(item,'away');
+                if(hv!=null && av!=null){stats[h]=hv;stats[a]=av;}
+                break;
+              }
+            }
+          }
+          pair({'totalshots','total shots','shots'},'homeShots','awayShots');
+          pair({'shotsontarget','shots on target','shotsongoal'},'homeOn','awayOn');
+          pair({'cornerkicks','corner kicks','corners'},'homeCorners','awayCorners');
+          pair({'fouls'},'homeFouls','awayFouls');
+          pair({'throwins','throw-ins','throw ins'},'homeThrow','awayThrow');
+          pair({'goalkeepersaves','goalkeeper saves','saves'},'homeSaves','awaySaves');
+          pair({'yellowcards','yellow cards'},'homeYellow','awayYellow');
+          pair({'redcards','red cards'},'homeRed','awayRed');
+          if(stats.isNotEmpty)source=source.isEmpty?'SofaScore':source+' + SofaScore';
+          break;
+        }catch(_){ }
+      }
+    }
+    return {'stats':stats,'source':source};
+  }
+
+  @override Widget build(BuildContext context){
+    final m=widget.m;
+    return DraggableScrollableSheet(expand:false,initialChildSize:.88,minChildSize:.60,maxChildSize:.96,builder:(_,controller)=>ListView(controller:controller,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
+      Center(child:Container(width:40,height:4,decoration:BoxDecoration(color:Colors.white24,borderRadius:BorderRadius.circular(8)))),
+      const SizedBox(height:18),
+      Text(m.league.toUpperCase(),textAlign:TextAlign.center,style:const TextStyle(fontSize:9,color:Color(0xFF8B93A5),letterSpacing:1.2)),
+      const SizedBox(height:8),
+      Text(m.home+'  vs  '+m.away,textAlign:TextAlign.center,style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+      const SizedBox(height:5),
+      Text(m.status=='NS' ? m.time.replaceAll('|',' ')+' · PRE-MATCH' : (m.live?'LIVE · dati in aggiornamento':'PARTITA TERMINATA'),textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9A95B4),fontSize:10,fontWeight:FontWeight.w800)),
+      const SizedBox(height:16),
+      Row(children:[Expanded(child:_scoreBox(m.home,m.hs)),const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF60687A),fontWeight:FontWeight.w900))),Expanded(child:_scoreBox(m.away,m.ascore))]),
+      const SizedBox(height:18),
+      Row(children:[const Expanded(child:Text('STATISTICHE',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
+      if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
+      if(!loadingStats && detailStats.isNotEmpty)..._statGrid(detailStats),
+      if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Le statistiche di gara saranno disponibili quando la partita inizierà.':'La fonte corrente non ha restituito statistiche dettagliate.'),
+      if(statsSource.isNotEmpty)Padding(padding:const EdgeInsets.only(top:6),child:Text('Fonte: '+statsSource,style:const TextStyle(color:Color(0xFF6F7687),fontSize:9))),
+      if(m.preMatchStats.isNotEmpty)...[
+        const SizedBox(height:18),
+        const Text('DATI PRE-MATCH',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
+        const SizedBox(height:8),
+        ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:6),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
+      ],
+      if(m.proposals.isNotEmpty)...[
+        const SizedBox(height:16),
+        const Text('PROPOSTA IA',style:TextStyle(color:Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
+        const SizedBox(height:8),
+        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x3042E89A))),child:Text(m.pick,style:const TextStyle(color:Color(0xFF42E89A),fontWeight:FontWeight.w900))),
+      ],
+      const SizedBox(height:12),
+      Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di risultato.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4)),
+    ]));
+  }
+
+  Widget _scoreBox(String team,int? score)=>Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Column(children:[Text(score==null?'—':'$score',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),Text(team,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,color:Color(0xFF9299AD)))]));
+
+  List<Widget> _statGrid(Map<String,dynamic> s){
+    Widget cell(String label,String h,String a){
+      if(!s.containsKey(h) || !s.containsKey(a))return const SizedBox.shrink();
+      return Container(margin:const EdgeInsets.only(bottom:9),padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(14),border:Border.all(color:Colors.white10)),child:Column(children:[
+        Row(children:[Expanded(child:Text(s[h].toString(),textAlign:TextAlign.center,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Expanded(child:Text(s[a].toString(),textAlign:TextAlign.center,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900)))]),
+        const SizedBox(height:5),Text(label,style:const TextStyle(color:Color(0xFF80889B),fontSize:9,fontWeight:FontWeight.w800)),
+      ]));
+    }
+    return [cell('TIRI','homeShots','awayShots'),cell('TIRI IN PORTA','homeOn','awayOn'),cell('ANGOLI','homeCorners','awayCorners'),cell('FALLI','homeFouls','awayFouls'),cell('RIMESSE LATERALI','homeThrow','awayThrow'),cell('PARATE','homeSaves','awaySaves'),cell('CARTELLINI GIALLI','homeYellow','awayYellow'),cell('CARTELLINI ROSSI','homeRed','awayRed'),cell('POSSESSO','homePossession','awayPossession')].where((w)=>w is! SizedBox).toList();
+  }
+
+  Widget _emptyStats(String message)=>Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Row(children:[const Icon(Icons.insights_rounded,color:Color(0xFF8B7CFF)),const SizedBox(width:10),Expanded(child:Text(message,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)))]));
+}
 class _Background extends StatelessWidget { const _Background(); @override Widget build(BuildContext c)=>IgnorePointer(child:Stack(children:[
   Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
   Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
