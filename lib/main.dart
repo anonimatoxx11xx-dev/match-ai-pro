@@ -581,6 +581,13 @@ class _DetailState extends State<_Detail> {
   bool loadingStats=true;
   Map<String,dynamic> detailStats={};
   String statsSource='';
+  String statsStatus='';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
 
   Future<void> _loadStats() async {
     if(mounted)setState(()=>loadingStats=true);
@@ -589,6 +596,7 @@ class _DetailState extends State<_Detail> {
     setState((){
       detailStats=result['stats'] is Map ? Map<String,dynamic>.from(result['stats']) : <String,dynamic>{};
       statsSource=result['source']?.toString()??'';
+      statsStatus=detailStats.isEmpty ? 'Nessun dato dettagliato disponibile' : detailStats.length.toString()+' indicatori disponibili';
       loadingStats=false;
     });
   }
@@ -596,8 +604,7 @@ class _DetailState extends State<_Detail> {
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
     final out=<String,dynamic>{};
     var source='';
-    if(m.status=='NS' && m.stats.isNotEmpty)return {'stats':Map<String,dynamic>.from(m.stats),'source':'Feed · medie ultime gare'};
-    if(m.stats.isNotEmpty){ out.addAll(m.stats); source='Feed'; }
+    if(m.stats.isNotEmpty){ out.addAll(m.stats); source='Feed · medie ultime gare'; }
     const slugs=<String,String>{
       'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
       'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
@@ -660,11 +667,19 @@ class _DetailState extends State<_Detail> {
       }catch(_){ }
     }
     if(m.status!='NS')await trySofaCurrent();
-    if(m.status!='NS' || out.isNotEmpty)return {'stats':out,'source':source};
+    if(m.status!='NS')return {'stats':out,'source':source};
 
     final historical=await _fetchHistoricalMatchStats(m);
-    final h=historical['stats']; if(h is Map)out.addAll(Map<String,dynamic>.from(h));
-    if(out.isNotEmpty)return {'stats':out,'source':historical['source']?.toString()??source};
+    final h=historical['stats'];
+    if(h is Map){
+      final hm=Map<String,dynamic>.from(h);
+      hm.forEach((key,value){ if(!out.containsKey(key)) out[key]=value; });
+    }
+    if(out.isNotEmpty){
+      final hs=historical['source']?.toString()??'';
+      if(hs.isNotEmpty) source=source.isEmpty?hs:'$source + $hs';
+      return {'stats':out,'source':source};
+    }
     return {'stats':out,'source':source};
   }
 
@@ -733,7 +748,13 @@ class _DetailState extends State<_Detail> {
       Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE LIVE + DETTAGLIATE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
       if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
       if(!loadingStats && detailStats.isNotEmpty)...[
-        if(m.status=='NS')const Padding(padding:EdgeInsets.only(bottom:7),child:Text('MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
+        if(m.status=='NS')Padding(
+          padding:const EdgeInsets.only(bottom:7),
+          child:Row(children:[
+            const Expanded(child:Text('STATISTICHE DISPONIBILI · MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
+            Text(statsStatus,style:const TextStyle(color:Color(0xFF6F7687),fontSize:8,fontWeight:FontWeight.w800)),
+          ]),
+        ),
         ..._statGrid(detailStats),
       ],
       if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
@@ -774,13 +795,31 @@ class _DetailState extends State<_Detail> {
 
   List<Widget> _statGrid(Map<String,dynamic> s){
     Widget cell(String label,String h,String a){
-      if(!s.containsKey(h) || !s.containsKey(a))return const SizedBox.shrink();
+      final hasH=s.containsKey(h), hasA=s.containsKey(a);
+      final hv=hasH?s[h].toString():'—', av=hasA?s[a].toString():'—';
       return Container(margin:const EdgeInsets.only(bottom:9),padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(14),border:Border.all(color:Colors.white10)),child:Column(children:[
-        Row(children:[Expanded(child:Text(s[h].toString(),textAlign:TextAlign.center,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Expanded(child:Text(s[a].toString(),textAlign:TextAlign.center,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900)))]),
+        Row(children:[
+          Expanded(child:Text(hv,textAlign:TextAlign.center,style:TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:hasH?Colors.white:const Color(0xFF555C70)))),
+          Expanded(child:Text(av,textAlign:TextAlign.center,style:TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:hasA?Colors.white:const Color(0xFF555C70)))),
+        ]),
         const SizedBox(height:5),Text(label,style:const TextStyle(color:Color(0xFF80889B),fontSize:9,fontWeight:FontWeight.w800)),
       ]));
     }
-    return [cell('TIRI','homeShots','awayShots'),cell('TIRI IN PORTA','homeOn','awayOn'),cell('ANGOLI','homeCorners','awayCorners'),cell('FALLI','homeFouls','awayFouls'),cell('RIMESSE LATERALI','homeThrow','awayThrow'),cell('PARATE','homeSaves','awaySaves'),cell('CARTELLINI GIALLI','homeYellow','awayYellow'),cell('CARTELLINI ROSSI','homeRed','awayRed'),cell('FUORIGIOCO','homeOffsides','awayOffsides'),cell('TIRI BLOCCATI','homeBlocked','awayBlocked'),cell('CONTRASTI','homeTackles','awayTackles'),cell('SPAZZATE','homeClearances','awayClearances'),cell('POSSESSO','homePossession','awayPossession')].where((w)=>w is! SizedBox).toList();
+    return [
+      cell('TIRI','homeShots','awayShots'),
+      cell('TIRI IN PORTA','homeOn','awayOn'),
+      cell('ANGOLI','homeCorners','awayCorners'),
+      cell('FALLI','homeFouls','awayFouls'),
+      cell('RIMESSE LATERALI','homeThrow','awayThrow'),
+      cell('PARATE','homeSaves','awaySaves'),
+      cell('CARTELLINI GIALLI','homeYellow','awayYellow'),
+      cell('CARTELLINI ROSSI','homeRed','awayRed'),
+      cell('FUORIGIOCO','homeOffsides','awayOffsides'),
+      cell('TIRI BLOCCATI','homeBlocked','awayBlocked'),
+      cell('CONTRASTI','homeTackles','awayTackles'),
+      cell('SPAZZATE','homeClearances','awayClearances'),
+      cell('POSSESSO','homePossession','awayPossession'),
+    ];
   }
 
   Widget _emptyStats(String message)=>Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Row(children:[const Icon(Icons.insights_rounded,color:Color(0xFF8B7CFF)),const SizedBox(width:10),Expanded(child:Text(message,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)))]));
