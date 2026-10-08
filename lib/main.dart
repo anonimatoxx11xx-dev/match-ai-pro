@@ -42,6 +42,9 @@ class Match {
   final Map<String,dynamic> stats;
   final String updatedAt;
   final String source;
+  final List<String> sources;
+  final int aiHomeProb, aiDrawProb, aiAwayProb;
+  final String aiPick;
   final int? homeTeamId, awayTeamId;
   Match({
     required this.id,
@@ -61,6 +64,11 @@ class Match {
     required this.stats,
     required this.updatedAt,
     required this.source,
+    this.sources = const [],
+    this.aiHomeProb = 0,
+    this.aiDrawProb = 0,
+    this.aiAwayProb = 0,
+    this.aiPick = '',
     this.homeTeamId,
     this.awayTeamId,
   });
@@ -220,6 +228,11 @@ class MatchService {
       stats:_map(m['stats']),
       updatedAt:updatedAt,
       source:decodedSource,
+      sources:(m['sources'] is List)?List<String>.from((m['sources'] as List).map((x)=>x.toString())):const [],
+      aiHomeProb:_int(_map(m['aiProbability'])['home'])??0,
+      aiDrawProb:_int(_map(m['aiProbability'])['draw'])??0,
+      aiAwayProb:_int(_map(m['aiProbability'])['away'])??0,
+      aiPick:m['aiPick']?.toString()??'',
       homeTeamId:_int(m['homeTeamId']),
       awayTeamId:_int(m['awayTeamId']),
     );
@@ -254,6 +267,7 @@ class MatchService {
       stats:const {},
       updatedAt:'',
       source:'SofaScore',
+      sources:const ['SofaScore'],
       homeTeamId:_int(h['id']),
       awayTeamId:_int(a['id']),
     );
@@ -398,10 +412,16 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
     final sourceProviders=<String>{};
     for(final m in matches){
-      final s=m.source.toLowerCase();
-      if(s.contains('espn')) sourceProviders.add('ESPN');
-      if(s.contains('sofa')) sourceProviders.add('SofaScore');
-      if(sourceProviders.isEmpty && s.trim().isNotEmpty) sourceProviders.add(m.source.trim());
+      for(final src in m.sources){
+        final s=src.toLowerCase();
+        if(s.contains('espn')) sourceProviders.add('ESPN');
+        if(s.contains('sofa')) sourceProviders.add('SofaScore');
+      }
+      if(m.sources.isEmpty){
+        final s=m.source.toLowerCase();
+        if(s.contains('espn')) sourceProviders.add('ESPN');
+        if(s.contains('sofa')) sourceProviders.add('SofaScore');
+      }
     }
     final sourceCount=sourceProviders.length;
     final coverage=total==0?0.0:withStats/total;
@@ -511,6 +531,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
               const SizedBox(width:6),_miniCardStat('ANGOLI',m.stats['homeCorners'],m.stats['awayCorners'])
             ])
           ],
+          if(m.status=='NS' && (m.aiHomeProb+m.aiDrawProb+m.aiAwayProb)>0)...[
+            const SizedBox(height:9),
+            _probabilityStrip(m),
+          ],
           const SizedBox(height:12),
           Row(children:[
             Expanded(child:Container(padding:const EdgeInsets.symmetric(horizontal:11,vertical:10),decoration:BoxDecoration(gradient:LinearGradient(colors:[accent.withValues(alpha:.12),accent.withValues(alpha:.04)]),borderRadius:BorderRadius.circular(14),border:Border.all(color:accent.withValues(alpha:.20))),child:Row(children:[Icon(m.proposals.isEmpty?Icons.insights_rounded:Icons.local_fire_department_rounded,size:15,color:accent),const SizedBox(width:7),Expanded(child:Text(m.pick,maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(color:accent,fontSize:10,fontWeight:FontWeight.w900)))]))),
@@ -520,6 +544,22 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       )
     );
   }
+
+  Widget _probabilityStrip(Match m)=>Container(
+    padding:const EdgeInsets.symmetric(horizontal:10,vertical:8),
+    decoration:BoxDecoration(
+      color:const Color(0x0C42E89A),
+      borderRadius:BorderRadius.circular(11),
+      border:Border.all(color:const Color(0x1942E89A)),
+    ),
+    child:Row(children:[
+      const Icon(Icons.psychology_alt_rounded,size:13,color:Color(0xFF42E89A)),
+      const SizedBox(width:6),
+      const Text('IA 1X2',style:TextStyle(color:Color(0xFF7D879A),fontSize:7,fontWeight:FontWeight.w900,letterSpacing:.5)),
+      const SizedBox(width:8),
+      Expanded(child:Text('1 ${m.aiHomeProb}%  •  X ${m.aiDrawProb}%  •  2 ${m.aiAwayProb}%',textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFFE2E5EB),fontSize:9,fontWeight:FontWeight.w900))),
+    ])
+  );
 
   Widget _miniCardStat(String label,dynamic h,dynamic a)=>Expanded(child:Container(
     padding:const EdgeInsets.symmetric(vertical:7,horizontal:3),
@@ -932,6 +972,10 @@ class _DetailState extends State<_Detail> {
       Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('AI PREDICTION ENGINE',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1))),Text(conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))]),
       const SizedBox(height:8),Text(pick,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const SizedBox(height:10),
       Row(children:[p('CASA',hp,const Color(0xFF39D9FF)),const SizedBox(width:6),p('X',dp,const Color(0xFFFFC857)),const SizedBox(width:6),p('OSPITE',ap,const Color(0xFFA9A0FF))]),
+      if((widget.m.aiHomeProb+widget.m.aiDrawProb+widget.m.aiAwayProb)>0)Padding(
+        padding:const EdgeInsets.only(top:7),
+        child:Text('Probabilità feed: 1 ${widget.m.aiHomeProb}% · X ${widget.m.aiDrawProb}% · 2 ${widget.m.aiAwayProb}%',style:const TextStyle(color:Color(0xFF626B7D),fontSize:8,fontWeight:FontWeight.w800)),
+      ),
       const SizedBox(height:10),
       Row(children:[
         Expanded(child:Text('CASA · forma '+(hf*100).round().toString()+'/100 · '+(hr['w']??0).toString()+'V '+(hr['d']??0).toString()+'N '+(hr['l']??0).toString()+'P',style:const TextStyle(color:Color(0xFF39D9FF),fontSize:8,fontWeight:FontWeight.w900))),
