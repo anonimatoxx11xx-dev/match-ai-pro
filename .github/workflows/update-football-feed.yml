@@ -116,6 +116,9 @@ jobs:
                   "stats": {},
                   "proposals": [],
                   "proposalScore": 0,
+                  "aiProbability": {"home": 0, "draw": 0, "away": 0},
+                  "aiPick": "",
+                  "aiExpectedGoals": {"home": 0, "away": 0},
                   "preMatchStats": [],
               }
 
@@ -1298,6 +1301,61 @@ jobs:
           def form_points(items):
               return sum({"W": 3, "D": 1, "L": 0}.get(str(x).upper(), 0) for x in (items or [])[-5:])
 
+          def poisson_pmf(k, lam):
+              import math
+              return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+          def ai_1x2_probabilities(form_data, home_recent, away_recent):
+              """
+              Deterministic pre-match model:
+              - recent points/form
+              - recent GF/GA
+              - small home-field adjustment
+              No market odds are used in these probabilities.
+              """
+              home_team = (form_data.get("homeTeam") or {}) if isinstance(form_data, dict) else {}
+              away_team = (form_data.get("awayTeam") or {}) if isinstance(form_data, dict) else {}
+              hp = form_points(home_team.get("form") or [])
+              ap = form_points(away_team.get("form") or [])
+
+              if home_recent and away_recent:
+                  home_xg = max(0.15, (home_recent["gf"] + away_recent["ga"]) / 2.0 * 1.08)
+                  away_xg = max(0.10, (away_recent["gf"] + home_recent["ga"]) / 2.0 * 0.92)
+              else:
+                  # Conservative fallback when goal-form samples are unavailable.
+                  home_xg = 1.25 + max(-0.35, min(0.35, (hp - ap) * 0.04))
+                  away_xg = 1.05 + max(-0.30, min(0.30, (ap - hp) * 0.035))
+
+              home_win = draw = away_win = 0.0
+              for hg in range(0, 9):
+                  ph = poisson_pmf(hg, home_xg)
+                  for ag in range(0, 9):
+                      p = ph * poisson_pmf(ag, away_xg)
+                      if hg > ag:
+                          home_win += p
+                      elif hg == ag:
+                          draw += p
+                      else:
+                          away_win += p
+
+              total = max(0.0001, home_win + draw + away_win)
+              home_win, draw, away_win = home_win / total, draw / total, away_win / total
+
+              # Blend a limited form component so a strong recent run matters,
+              # without letting a short streak overwhelm the goal model.
+              form_delta = max(-1.0, min(1.0, (hp - ap) / 15.0))
+              home_win = max(0.01, home_win + form_delta * 0.045)
+              away_win = max(0.01, away_win - form_delta * 0.035)
+              draw = max(0.01, draw + (1.0 - abs(form_delta)) * 0.006)
+              norm = home_win + draw + away_win
+              return {
+                  "home": home_win / norm,
+                  "draw": draw / norm,
+                  "away": away_win / norm,
+                  "home_xg": home_xg,
+                  "away_xg": away_xg,
+              }
+
           def proposals(record_item, form_data, home_recent, away_recent):
               home_team = (form_data.get("homeTeam") or {}) if isinstance(form_data, dict) else {}
               away_team = (form_data.get("awayTeam") or {}) if isinstance(form_data, dict) else {}
@@ -1342,6 +1400,22 @@ jobs:
                       items.append("Under 3.5 • profilo recente contenuto")
                       index += 6
 
+              probs = ai_1x2_probabilities(form_data, home_recent, away_recent)
+              record_item["aiProbability"] = {
+                  "home": round(probs["home"] * 100),
+                  "draw": round(probs["draw"] * 100),
+                  "away": round(probs["away"] * 100),
+              }
+              record_item["aiPick"] = (
+                  "1 • " + record_item["home"]
+                  if probs["home"] >= probs["draw"] and probs["home"] >= probs["away"]
+                  else ("X • Pareggio" if probs["draw"] >= probs["home"] and probs["draw"] >= probs["away"]
+                        else "2 • " + record_item["away"])
+              )
+              record_item["aiExpectedGoals"] = {
+                  "home": round(probs["home_xg"], 2),
+                  "away": round(probs["away_xg"], 2),
+              }
               record_item["proposals"] = items[:3]
               record_item["proposalScore"] = max(45, min(88, index))
 
@@ -1404,6 +1478,9 @@ jobs:
               cached_item.setdefault("stats", {})
               cached_item.setdefault("proposals", [])
               cached_item.setdefault("proposalScore", 0)
+              cached_item.setdefault("aiProbability", {"home": 0, "draw": 0, "away": 0})
+              cached_item.setdefault("aiPick", "")
+              cached_item.setdefault("aiExpectedGoals", {"home": 0, "away": 0})
               cached_item.setdefault("preMatchStats", [])
               # Drop invalid negative goal projections from older feed runs and allow a clean retry.
               if any("Gol attesi:" in str(x) and "-" in str(x).split("Gol attesi:", 1)[1] for x in cached_item.get("preMatchStats") or []):
