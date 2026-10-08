@@ -338,6 +338,7 @@ jobs:
                                   continue
                               events_by_team.setdefault(key, []).append({
                                   "name": team_name,
+                                  "eventId": as_int(event.get("id")),
                                   "gf": gf,
                                   "ga": ga,
                                   "opponent": an if team_name == hn else hn,
@@ -1050,9 +1051,10 @@ jobs:
                   return None
 
           def enrich_with_espn_stat_averages(records):
-              upcoming = [x for x in records if x.get("status") == "NS" and x.get("homeTeamId") and x.get("awayTeamId")][:15]
+              upcoming = [x for x in records if x.get("status") == "NS"][:15]
               if not upcoming:
                   return
+
               slugs = {
                   "Premier League":"eng.1","Championship":"eng.2","League One":"eng.3","League Two":"eng.4","National League":"eng.5",
                   "La Liga":"esp.1","Segunda":"esp.2","Serie A":"ita.1","Serie B":"ita.2",
@@ -1060,66 +1062,58 @@ jobs:
                   "Eredivisie":"ned.1","Turkish Super Lig":"tur.1",
                   "UEFA Champions League":"uefa.champions","UEFA Europa League":"uefa.europa","UEFA Conference League":"uefa.europa.conf",
               }
-              team_keys = {}
+
+              recent_map = load_espn_recent_results(30)
+
+              def rows_for(team_name):
+                  return (recent_map.get(normalize_team_name(team_name)) or [])[:3]
+
+              refs = {}
               for item in upcoming:
                   slug = slugs.get(str(item.get("league") or ""))
-                  if slug:
-                      team_keys[(slug, item["homeTeamId"])] = True
-                      team_keys[(slug, item["awayTeamId"])] = True
+                  if not slug:
+                      continue
+                  for team_name in (item.get("home"), item.get("away")):
+                      for row in rows_for(team_name):
+                          event_id = as_int(row.get("eventId"))
+                          if event_id:
+                              refs[(slug, event_id)] = True
 
-              def recent_ids(slug, team_id):
+              if not refs:
+                  print("ESPN detailed pre-match averages: no recent event IDs")
+                  return
+
+              def summary(slug, event_id):
                   try:
-                      data = get_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/teams/{team_id}/schedule?limit=8", 10)
-                      rows = []
-                      for event in data.get("events") or []:
-                          if not isinstance(event, dict):
-                              continue
-                          status_type = ((event.get("status") or {}).get("type") or {})
-                          state_name = str(status_type.get("state") or "").lower()
-                          if as_int(event.get("id")) and (status_type.get("completed") or state_name in {"post","final"}):
-                              rows.append((str(event.get("date") or ""), as_int(event.get("id"))))
-                      rows.sort(reverse=True)
-                      return [event_id for _, event_id in rows[:3]]
-                  except Exception:
-                      return []
-
-              team_recent = {}
-              with ThreadPoolExecutor(max_workers=10) as pool:
-                  futures = {pool.submit(recent_ids, slug, team_id):(slug, team_id) for slug, team_id in team_keys}
-                  for future in as_completed(futures):
-                      team_recent[futures[future]] = future.result()
-
-              event_refs = {}
-              for key, ids in team_recent.items():
-                  for event_id in ids:
-                      event_refs.setdefault(event_id, set()).add(key)
-
-              def get_summary(slug, event_id):
-                  try:
-                      payload = get_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/summary?event={event_id}", 10)
-                      box = payload.get("boxscore") or {}
-                      result = {}
-                      for team in box.get("teams") or []:
+                      payload = get_json(
+                          f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/summary?event={event_id}",
+                          10,
+                      )
+                      out = {}
+                      for team in (payload.get("boxscore") or {}).get("teams") or []:
                           if not isinstance(team, dict):
                               continue
-                          tid = as_int((team.get("team") or {}).get("id"))
-                          if not tid:
-                              continue
-                          values = {}
+                          team_obj = team.get("team") or {}
+                          tid = as_int(team_obj.get("id"))
+                          name = normalize_team_name(team_obj.get("displayName"))
+                          stats = {}
                           for stat in team.get("statistics") or []:
                               if not isinstance(stat, dict):
                                   continue
                               key = str(stat.get("name") or "").lower().replace("_","")
                               value = stat.get("displayValue") if stat.get("displayValue") is not None else stat.get("value")
-                              values[key] = str(value or "")
-                          result[tid] = values
-                      return result
+                              stats[key] = str(value or "")
+                          if tid:
+                              out["id:"+str(tid)] = stats
+                          if name:
+                              out["name:"+name] = stats
+                      return out
                   except Exception:
                       return {}
 
               summaries = {}
               with ThreadPoolExecutor(max_workers=12) as pool:
-                  futures = {pool.submit(get_summary, next(iter(refs))[0], event_id):event_id for event_id, refs in event_refs.items()}
+                  futures = {pool.submit(summary, slug, event_id):(slug,event_id) for slug,event_id in refs}
                   for future in as_completed(futures):
                       summaries[futures[future]] = future.result()
 
@@ -1130,63 +1124,62 @@ jobs:
                   "offsides":"offsides","blockedshots":"blocked","tackles":"tackles","clearances":"clearances","possessionpct":"possession"
               }
 
-              averages = {}
-              for team_key, ids in team_recent.items():
-                  rows = []
-                  for event_id in ids:
-                      values = (summaries.get(event_id) or {}).get(team_key[1])
-                      if values:
-                          rows.append(values)
-                  if not rows:
-                      continue
-                  avg = {}
-                  for source_key, label in wanted.items():
-                      nums = []
-                      for row in rows:
-                          raw = str(row.get(source_key) or "").replace("%","")
-                          try:
-                              nums.append(float(raw.replace(",",".")))
-                          except Exception:
-                              pass
-                      if nums:
-                          avg[label] = round(sum(nums) / len(nums), 1)
-                  averages[team_key] = avg
-
               added = 0
               for item in upcoming:
                   slug = slugs.get(str(item.get("league") or ""))
                   if not slug:
                       continue
-                  home_avg = averages.get((slug, item["homeTeamId"])) or {}
-                  away_avg = averages.get((slug, item["awayTeamId"])) or {}
-                  if not home_avg or not away_avg:
+                  team_avgs = {}
+                  for side in ("home","away"):
+                      name_key = normalize_team_name(item.get(side))
+                      vals = []
+                      for row in rows_for(item.get(side)):
+                          event_id = as_int(row.get("eventId"))
+                          data = summaries.get((slug,event_id)) or {}
+                          values = data.get("name:"+name_key)
+                          if values:
+                              vals.append(values)
+                      avg = {}
+                      for source_key,label in wanted.items():
+                          nums = []
+                          for row in vals:
+                              raw = str(row.get(source_key) or "").replace("%","")
+                              try:
+                                  nums.append(float(raw.replace(",",".")))
+                              except Exception:
+                                  pass
+                          if nums:
+                              avg[label] = round(sum(nums)/len(nums),1)
+                      team_avgs[side] = avg
+
+                  home = team_avgs.get("home") or {}
+                  away = team_avgs.get("away") or {}
+                  keys = ("shots","on","corners","fouls","throw","saves","yellow","red","offsides","blocked","tackles","clearances","possession")
+                  if not home or not away or sum(1 for k in keys if k in home and k in away) < 4:
                       continue
-                  key_map = {"shots":"Shots","on":"On","corners":"Corners","fouls":"Fouls","throw":"Throw","saves":"Saves",
-                             "yellow":"Yellow","red":"Red","offsides":"Offsides","blocked":"Blocked","tackles":"Tackles","clearances":"Clearances","possession":"Possession"}
+
+                  suffix = {"shots":"Shots","on":"On","corners":"Corners","fouls":"Fouls","throw":"Throw",
+                            "saves":"Saves","yellow":"Yellow","red":"Red","offsides":"Offsides","blocked":"Blocked",
+                            "tackles":"Tackles","clearances":"Clearances","possession":"Possession"}
                   stats = {}
-                  for key, suffix in key_map.items():
-                      if key in home_avg and key in away_avg:
-                          stats["home"+suffix] = home_avg[key]
-                          stats["away"+suffix] = away_avg[key]
-                  if len(stats) < 4:
-                      continue
+                  for key in keys:
+                      if key in home and key in away:
+                          stats["home"+suffix[key]] = home[key]
+                          stats["away"+suffix[key]] = away[key]
                   item["stats"] = stats
-                  item.setdefault("preMatchStats", []).append(
-                      "Medie ultime gare · tiri " + str(home_avg.get("shots","—")) + "–" + str(away_avg.get("shots","—")) +
-                      " · tiri in porta " + str(home_avg.get("on","—")) + "–" + str(away_avg.get("on","—")) +
-                      " · angoli " + str(home_avg.get("corners","—")) + "–" + str(away_avg.get("corners","—"))
-                  )
-                  item.setdefault("preMatchStats", []).append(
-                      "Falli " + str(home_avg.get("fouls","—")) + "–" + str(away_avg.get("fouls","—")) +
-                      " · rimesse " + str(home_avg.get("throw","—")) + "–" + str(away_avg.get("throw","—")) +
-                      " · parate " + str(home_avg.get("saves","—")) + "–" + str(away_avg.get("saves","—"))
-                  )
-                  item.setdefault("preMatchStats", []).append(
-                      "Gialli " + str(home_avg.get("yellow","—")) + "–" + str(away_avg.get("yellow","—")) +
-                      " · fuorigioco " + str(home_avg.get("offsides","—")) + "–" + str(away_avg.get("offsides","—")) +
-                      " · possesso " + str(home_avg.get("possession","—")) + "%–" + str(away_avg.get("possession","—")) + "%"
-                  )
+                  item.setdefault("preMatchStats", []).extend([
+                      "Medie ultime 3 gare · Tiri "+str(home.get("shots","—"))+"–"+str(away.get("shots","—"))+
+                      " · Tiri in porta "+str(home.get("on","—"))+"–"+str(away.get("on","—"))+
+                      " · Angoli "+str(home.get("corners","—")),
+                      "Falli "+str(home.get("fouls","—"))+"–"+str(away.get("fouls","—"))+
+                      " · Rimesse "+str(home.get("throw","—"))+"–"+str(away.get("throw","—"))+
+                      " · Parate "+str(home.get("saves","—"))+"–"+str(away.get("saves","—")),
+                      "Gialli "+str(home.get("yellow","—"))+"–"+str(away.get("yellow","—"))+
+                      " · Rossi "+str(home.get("red","—"))+"–"+str(away.get("red","—"))+
+                      " · Possesso "+str(home.get("possession","—"))+"%–"+str(away.get("possession","—"))+"%",
+                  ])
                   added += 1
+
               print("ESPN detailed pre-match averages:", added, "matches")
 
           def enrich_with_api_football(records):
