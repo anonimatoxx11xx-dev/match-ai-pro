@@ -598,287 +598,6 @@ class _DetailState extends State<_Detail> {
     });
   }
 
-  Future<Map<String,dynamic>> _fetchHistoricalStats(Match m) async {
-    final stats=<String,dynamic>{};
-    const slugs=<String,String>{
-      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
-      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
-      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
-      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
-    };
-    final slug=slugs[m.league.toLowerCase().trim()]??'';
-    if(slug.isEmpty || m.homeTeamId==null || m.awayTeamId==null)return {'stats':stats,'source':''};
-
-    Future<List<int>> recentIds(int teamId) async {
-      try{
-        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/teams/'+teamId.toString()+'/schedule?limit=10';
-        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return <int>[];
-        final data=jsonDecode(res.body);
-        final events=data is Map ? data['events'] : null;
-        if(events is! List)return <int>[];
-        final rows=<Map<String,dynamic>>[];
-        for(final e in events){
-          if(e is! Map)continue;
-          final id=int.tryParse(e['id']?.toString()??'');
-          final type=e['status'] is Map ? e['status']['type'] : null;
-          final state=type is Map ? type['state'].toString().toLowerCase() : '';
-          final completed=type is Map && (type['completed']==true || state=='post' || state=='final');
-          if(id!=null && id!=m.id && completed)rows.add({'id':id,'date':e['date']??''});
-        }
-        rows.sort((a,b)=>b['date'].toString().compareTo(a['date'].toString()));
-        return rows.take(5).map((e)=>e['id'] as int).toList();
-      }catch(_){ return <int>[]; }
-    }
-
-    Future<Map<String,double>> oneGame(int eventId,int teamId) async {
-      final out=<String,double>{};
-      try{
-        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+eventId.toString();
-        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return out;
-        final data=jsonDecode(res.body);
-        final box=data is Map ? data['boxscore'] : null;
-        final teams=box is Map ? box['teams'] : null;
-        if(teams is! List)return out;
-        for(final team in teams){
-          if(team is! Map)continue;
-          final teamObj=team['team'];
-          final id=int.tryParse((teamObj is Map ? teamObj['id'] : null)?.toString()??'');
-          if(id!=teamId)continue;
-          final list=team['statistics'] is List ? team['statistics'] as List : const [];
-          for(final item in list){
-            if(item is! Map)continue;
-            final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
-            final raw=(item['displayValue']??item['value'])?.toString()??'';
-            final number=double.tryParse(raw.replaceAll('%','').replaceAll(',','.'));
-            if(number==null)continue;
-            if(key=='shots' || key.contains('totalshots'))out['shots']=number;
-            else if(key.contains('shotsontarget'))out['on']=number;
-            else if(key.contains('corner'))out['corners']=number;
-            else if(key.contains('foul'))out['fouls']=number;
-            else if(key.contains('throw'))out['throw']=number;
-            else if(key.contains('save'))out['saves']=number;
-            else if(key.contains('yellow'))out['yellow']=number;
-            else if(key.contains('red'))out['red']=number;
-            else if(key.contains('possession'))out['possession']=number;
-          }
-        }
-      }catch(_){ }
-      return out;
-    }
-
-    final homeIds=await recentIds(m.homeTeamId!);
-    final awayIds=await recentIds(m.awayTeamId!);
-    final jobs=<Future<Map<String,double>>>[];
-    for(final id in homeIds)jobs.add(oneGame(id,m.homeTeamId!));
-    for(final id in awayIds)jobs.add(oneGame(id,m.awayTeamId!));
-    final rows=await Future.wait(jobs);
-    final homeRows=rows.take(homeIds.length).where((x)=>x.isNotEmpty).toList();
-    final awayRows=rows.skip(homeIds.length).where((x)=>x.isNotEmpty).toList();
-    void average(List<Map<String,double>> input,String prefix){
-      for(final key in const ['shots','on','corners','fouls','throw','saves','yellow','red','possession']){
-        final values=input.map((x)=>x[key]).whereType<double>().toList();
-        if(values.isEmpty)continue;
-        final avg=values.reduce((a,b)=>a+b)/values.length;
-        stats[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse(avg.toStringAsFixed(1));
-      }
-    }
-    average(homeRows,'home');
-    average(awayRows,'away');
-    final games=homeRows.length<awayRows.length?homeRows.length:awayRows.length;
-    if(stats.isEmpty)return {'stats':stats,'source':''};
-    return {'stats':stats,'source':'ESPN · medie ultime '+games.toString()+' gare'};
-  }
-  Future<Map<String,dynamic>> _fetchHistoricalMatchStats(Match m) async {
-    final out=<String,dynamic>{};
-    const wanted=<String,String>{
-      'totalshots':'shots','shots':'shots','shotsontarget':'on','shotsongoal':'on',
-      'cornerkicks':'corners','corners':'corners','fouls':'fouls','throwins':'throw',
-      'goalkeepersaves':'saves','saves':'saves','yellowcards':'yellow','redcards':'red','possession':'possession',
-    };
-
-    Future<int?> findTeam(String name) async {
-      try{
-        final url='https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name);
-        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return null;
-        final data=jsonDecode(res.body);
-        final results=data is Map ? data['results'] : null;
-        if(results is! List)return null;
-        for(final item in results){
-          if(item is! Map)continue;
-          final entity=item['entity'];
-          if(item['type']=='team' && entity is Map && entity['id']!=null)return int.tryParse(entity['id'].toString());
-          if(entity is Map && entity['name']?.toString().toLowerCase()==name.toLowerCase())return int.tryParse(entity['id']?.toString()??'');
-        }
-      }catch(_){ }
-      return null;
-    }
-
-    Future<List<int>> recentEvents(int teamId) async {
-      try{
-        final url='https://www.sofascore.com/api/v1/team/'+teamId.toString()+'/events/last/0';
-        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return <int>[];
-        final data=jsonDecode(res.body);
-        final events=data is Map ? data['events'] : null;
-        if(events is! List)return <int>[];
-        final ids=<int>[];
-        for(final event in events){
-          if(event is! Map)continue;
-          final status=event['status'];
-          final state=status is Map ? status['type']?.toString().toLowerCase() : '';
-          final id=int.tryParse(event['id']?.toString()??'');
-          if(id!=null && (state=='finished' || state=='ended' || state=='afterextra' || state=='afterpenalties'))ids.add(id);
-        }
-        return ids.take(6).toList();
-      }catch(_){ return <int>[]; }
-    }
-
-    Future<Map<String,double>> eventTeamStats(int eventId,int teamId) async {
-      final stats=<String,double>{};
-      try{
-        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return stats;
-        final data=jsonDecode(res.body);
-        final periods=data is Map ? data['statistics'] : null;
-        if(periods is! List)return stats;
-        Map? all;
-        for(final p in periods){ if(p is Map && p['period']=='ALL'){ all=p; break; } }
-        if(all==null)return stats;
-        final items=<Map>[];
-        final groups=all['groups'];
-        if(groups is List){ for(final group in groups){ if(group is Map && group['statisticsItems'] is List)items.addAll((group['statisticsItems'] as List).whereType<Map>()); } }
-        Map? homeTeam; Map? awayTeam;
-        final home=all['homeTeam']; final away=all['awayTeam'];
-        if(home is Map)homeTeam=home; if(away is Map)awayTeam=away;
-        final homeSide=homeTeam?['id']?.toString()==teamId.toString();
-        for(final item in items){
-          final key=(item['key']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
-          final name=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
-          final normalized=wanted[key]??wanted[name];
-          if(normalized==null)continue;
-          final raw=homeSide?(item['homeValue']??item['home']):(item['awayValue']??item['away']);
-          final value=double.tryParse(raw?.toString()?.replaceAll('%','').replaceAll(',','.')??'');
-          if(value!=null)stats[normalized]=value;
-        }
-      }catch(_){ }
-      return stats;
-    }
-
-    final homeId=await findTeam(m.home);
-    final awayId=await findTeam(m.away);
-    if(homeId==null || awayId==null)return {'stats':out,'source':''};
-    final homeEvents=await recentEvents(homeId);
-    final awayEvents=await recentEvents(awayId);
-    final tasks=<Future<Map<String,double>>>[];
-    for(final id in homeEvents)tasks.add(eventTeamStats(id,homeId));
-    for(final id in awayEvents)tasks.add(eventTeamStats(id,awayId));
-    final rows=await Future.wait(tasks);
-    final homeRows=rows.take(homeEvents.length).where((x)=>x.isNotEmpty).toList();
-    final awayRows=rows.skip(homeEvents.length).where((x)=>x.isNotEmpty).toList();
-    void avg(List<Map<String,double>> rows,String prefix){
-      for(final key in wanted.values.toSet()){
-        final values=rows.map((x)=>x[key]).whereType<double>().toList();
-        if(values.isEmpty)continue;
-        final mean=values.reduce((a,b)=>a+b)/values.length;
-        out[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse(mean.toStringAsFixed(1));
-      }
-    }
-    avg(homeRows,'home'); avg(awayRows,'away');
-    final samples=homeRows.length<awayRows.length?homeRows.length:awayRows.length;
-    if(out.isEmpty)return {'stats':out,'source':''};
-    return {'stats':out,'source':'SofaScore · medie ultime '+samples.toString()+' gare'};
-  }
-  Future<Map<String,dynamic>> _fetchStats(Match m) async {
-    final stats=<String,dynamic>{};
-    var source='';
-    final map=<String,String>{
-      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
-      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
-      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
-      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
-    };
-    {
-      final slug=map[m.league.toLowerCase().trim()]??'';
-      if(slug.isNotEmpty){
-        try{
-          final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+m.id.toString();
-          final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:12));
-          if(res.statusCode==200){
-            final data=jsonDecode(res.body);
-            final box=data is Map ? data['boxscore'] : null;
-            final teams=box is Map ? box['teams'] : null;
-            if(teams is List){
-              for(final t in teams){
-                if(t is! Map)continue;
-                final side=t['homeAway']?.toString();
-                final prefix=side=='home'?'home':'away';
-                final list=t['statistics'] is List ? t['statistics'] as List : const [];
-                for(final item in list){
-                  if(item is! Map)continue;
-                  final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
-                  final value=item['displayValue']??item['value'];
-                  if(key.contains('shotsontarget'))stats[prefix+'On']=value;
-                  else if(key=='shots' || key.contains('totalshots'))stats[prefix+'Shots']=value;
-                  else if(key.contains('corner'))stats[prefix+'Corners']=value;
-                  else if(key.contains('foul'))stats[prefix+'Fouls']=value;
-                  else if(key.contains('throw'))stats[prefix+'Throw']=value;
-                  else if(key.contains('save'))stats[prefix+'Saves']=value;
-                  else if(key.contains('yellow'))stats[prefix+'Yellow']=value;
-                  else if(key.contains('red'))stats[prefix+'Red']=value;
-                  else if(key.contains('possession'))stats[prefix+'Possession']=value;
-                }
-              }
-              if(stats.isNotEmpty)source='ESPN';
-            }
-          }
-        }catch(_){ }
-      }
-    }
-    if(m.id>0){
-      for(final base in const ['https://api.sofascore.app/api/v1/event/','https://www.sofascore.com/api/v1/event/']){
-        try{
-          final res=await http.get(Uri.parse(base+m.id.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:12));
-          if(res.statusCode!=200)continue;
-          final data=jsonDecode(res.body);
-          final periods=data is Map ? data['statistics'] : null;
-          if(periods is! List)continue;
-          Map? all;
-          for(final p in periods){ if(p is Map && p['period']=='ALL'){ all=p; break; } }
-          if(all==null)continue;
-          final items=<Map>[];
-          final groups=all['groups'];
-          if(groups is List){ for(final g in groups){ if(g is Map && g['statisticsItems'] is List){ items.addAll((g['statisticsItems'] as List).whereType<Map>()); } } }
-          int? val(Map item,String side){ final raw=item[side+'Value']??item[side]; return raw is num ? raw.toInt() : int.tryParse(raw?.toString()??''); }
-          void pair(Set<String> names,String h,String a){
-            for(final item in items){
-              final key=(item['key']??'').toString().toLowerCase();
-              final name=(item['name']??'').toString().toLowerCase();
-              if(names.any((n)=>key==n || name==n || key.contains(n) || name.contains(n))){
-                final hv=val(item,'home'); final av=val(item,'away');
-                if(hv!=null && av!=null){stats[h]=hv;stats[a]=av;}
-                break;
-              }
-            }
-          }
-          pair({'totalshots','total shots','shots'},'homeShots','awayShots');
-          pair({'shotsontarget','shots on target','shotsongoal'},'homeOn','awayOn');
-          pair({'cornerkicks','corner kicks','corners'},'homeCorners','awayCorners');
-          pair({'fouls'},'homeFouls','awayFouls');
-          pair({'throwins','throw-ins','throw ins'},'homeThrow','awayThrow');
-          pair({'goalkeepersaves','goalkeeper saves','saves'},'homeSaves','awaySaves');
-          pair({'yellowcards','yellow cards'},'homeYellow','awayYellow');
-          pair({'redcards','red cards'},'homeRed','awayRed');
-          if(stats.isNotEmpty)source=source.isEmpty?'SofaScore':source+' + SofaScore';
-          break;
-        }catch(_){ }
-      }
-    }
-    return {'stats':stats,'source':source};
-  }
-
   @override Widget build(BuildContext context){
     final m=widget.m;
     return DraggableScrollableSheet(expand:false,initialChildSize:.88,minChildSize:.60,maxChildSize:.96,builder:(_,controller)=>ListView(controller:controller,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
@@ -894,13 +613,16 @@ class _DetailState extends State<_Detail> {
       const SizedBox(height:18),
       Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE LIVE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
       if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
-      if(!loadingStats && detailStats.isNotEmpty)..._statGrid(detailStats),
+      if(!loadingStats && detailStats.isNotEmpty)...[
+        if(m.status=='NS')const Padding(padding:EdgeInsets.only(bottom:7),child:Text('MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
+        ..._statGrid(detailStats),
+      ],
       if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
       if(!loadingStats && detailStats.isNotEmpty && m.status=='NS')const Padding(padding:EdgeInsets.only(top:4,bottom:6),child:Text('Medie delle ultime gare · non sono i dati della partita in programma.',style:TextStyle(color:Color(0xFF7F879A),fontSize:9))),
       if(statsSource.isNotEmpty)Padding(padding:const EdgeInsets.only(top:6),child:Text('Fonte: '+statsSource,style:const TextStyle(color:Color(0xFF6F7687),fontSize:9))),
       if(m.preMatchStats.isNotEmpty)...[
         const SizedBox(height:18),
-        const Text(m.status=='NS'?'DATI PRE-MATCH':'DATI PARTITA',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
+        Text(m.status=='NS'?'DATI PRE-MATCH':'DATI PARTITA',style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
         const SizedBox(height:8),
         ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:6),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
       ],
@@ -908,7 +630,7 @@ class _DetailState extends State<_Detail> {
         const SizedBox(height:16),
         const Text('PROPOSTA IA',style:TextStyle(color:Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
         const SizedBox(height:8),
-        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x3042E89A))),child:Text(m.pick,style:const TextStyle(color:Color(0xFF42E89A),fontWeight:FontWeight.w900))),
+        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x3042E89A))),child:Column(children:[Text(m.pick,style:const TextStyle(color:Color(0xFF42E89A),fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('Stima IA: '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900))])),
       ],
       const SizedBox(height:12),
       Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di risultato.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4)),
