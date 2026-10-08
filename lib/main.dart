@@ -582,14 +582,9 @@ class _DetailState extends State<_Detail> {
   Map<String,dynamic> detailStats={};
   String statsSource='';
 
-  @override void initState(){ super.initState(); _loadStats(); }
-
   Future<void> _loadStats() async {
     if(mounted)setState(()=>loadingStats=true);
-    var result=await _fetchStats(widget.m);
-    if(result['stats'] is! Map || (result['stats'] as Map).isEmpty){
-      result=await _fetchHistoricalMatchStats(widget.m);
-    }
+    final result=await _fetchStats(widget.m);
     if(!mounted)return;
     setState((){
       detailStats=result['stats'] is Map ? Map<String,dynamic>.from(result['stats']) : <String,dynamic>{};
@@ -598,6 +593,128 @@ class _DetailState extends State<_Detail> {
     });
   }
 
+  Future<Map<String,dynamic>> _fetchStats(Match m) async {
+    final out=<String,dynamic>{};
+    var source='';
+    if(m.stats.isNotEmpty){ out.addAll(m.stats); source='Feed'; }
+    const slugs=<String,String>{
+      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
+      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
+      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
+      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
+    };
+    final slug=slugs[m.league.toLowerCase().trim()]??'';
+
+    Future<void> tryEspnCurrent() async {
+      if(m.id<=0 || slug.isEmpty)return;
+      try{
+        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+m.id.toString();
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return;
+        final data=jsonDecode(res.body);
+        final box=data is Map?data['boxscore']:null;
+        final teams=box is Map?box['teams']:null;
+        if(teams is! List)return;
+        for(final team in teams){
+          if(team is! Map)continue;
+          final side=team['homeAway']?.toString(); final prefix=side=='home'?'home':'away';
+          final list=team['statistics'] is List?team['statistics'] as List:const [];
+          for(final item in list){
+            if(item is! Map)continue;
+            final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+            final value=item['displayValue']??item['value'];
+            if(key.contains('shotsontarget'))out[prefix+'On']=value;
+            else if(key=='shots' || key.contains('totalshots'))out[prefix+'Shots']=value;
+            else if(key.contains('corner'))out[prefix+'Corners']=value;
+            else if(key.contains('foul'))out[prefix+'Fouls']=value;
+            else if(key.contains('throw'))out[prefix+'Throw']=value;
+            else if(key.contains('save'))out[prefix+'Saves']=value;
+            else if(key.contains('yellow'))out[prefix+'Yellow']=value;
+            else if(key.contains('red'))out[prefix+'Red']=value;
+            else if(key.contains('possession'))out[prefix+'Possession']=value;
+          }
+        }
+        if(out.isNotEmpty)source=source.isEmpty?'ESPN':source+' + ESPN';
+      }catch(_){ }
+    }
+    await tryEspnCurrent();
+
+    Future<void> trySofaCurrent() async {
+      if(m.id<=0)return;
+      try{
+        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+m.id.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return;
+        final data=jsonDecode(res.body); final periods=data is Map?data['statistics']:null;
+        if(periods is! List)return;
+        Map? all; for(final p in periods){if(p is Map && p['period']=='ALL'){all=p;break;}}
+        if(all==null)return;
+        final groups=all['groups']; if(groups is! List)return;
+        final items=<Map>[]; for(final g in groups){if(g is Map && g['statisticsItems'] is List)items.addAll((g['statisticsItems'] as List).whereType<Map>());}
+        int? val(Map x,String side){final raw=x[side+'Value']??x[side];return raw is num?raw.toInt():int.tryParse(raw?.toString()??'');}
+        void pair(Set<String> names,String h,String a){for(final item in items){final k=(item['key']??'').toString().toLowerCase();final n=(item['name']??'').toString().toLowerCase();if(names.any((q)=>k.contains(q)||n.contains(q))){final hv=val(item,'home');final av=val(item,'away');if(hv!=null&&av!=null){out[h]=hv;out[a]=av;}break;}}}
+        pair({'totalshots','shots'},'homeShots','awayShots'); pair({'shotsontarget','shots on target'},'homeOn','awayOn'); pair({'cornerkicks','corners'},'homeCorners','awayCorners');
+        pair({'fouls'},'homeFouls','awayFouls'); pair({'throwins','throw-ins'},'homeThrow','awayThrow'); pair({'goalkeepersaves','saves'},'homeSaves','awaySaves');
+        pair({'yellowcards','yellow cards'},'homeYellow','awayYellow'); pair({'redcards','red cards'},'homeRed','awayRed');
+        if(out.isNotEmpty)source=source.isEmpty?'SofaScore':source+' + SofaScore';
+      }catch(_){ }
+    }
+    if(m.status!='NS')await trySofaCurrent();
+    if(m.status!='NS' || out.isNotEmpty)return {'stats':out,'source':source};
+
+    final historical=await _fetchHistoricalMatchStats(m);
+    final h=historical['stats']; if(h is Map)out.addAll(Map<String,dynamic>.from(h));
+    if(out.isNotEmpty)return {'stats':out,'source':historical['source']?.toString()??source};
+    return {'stats':out,'source':source};
+  }
+
+  Future<Map<String,dynamic>> _fetchHistoricalMatchStats(Match m) async {
+    final out=<String,dynamic>{};
+    const wanted=<String,String>{
+      'totalshots':'shots','shots':'shots','shotsontarget':'on','shotsongoal':'on','cornerkicks':'corners','corners':'corners',
+      'fouls':'fouls','throwins':'throw','goalkeepersaves':'saves','saves':'saves','yellowcards':'yellow','redcards':'red','possession':'possession',
+    };
+    Future<int?> findTeam(String name) async {
+      try{
+        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name)),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return null; final data=jsonDecode(res.body); final results=data is Map?data['results']:null; if(results is! List)return null;
+        for(final item in results){if(item is! Map)continue;final entity=item['entity'];if(entity is Map && entity['id']!=null && (item['type']=='team' || entity['sport']?['slug']=='football'))return int.tryParse(entity['id'].toString());}
+      }catch(_){ }
+      return null;
+    }
+    Future<List<int>> recentEvents(int teamId) async {
+      try{
+        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/team/'+teamId.toString()+'/events/last/0'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return <int>[]; final data=jsonDecode(res.body); final events=data is Map?data['events']:null; if(events is! List)return <int>[];
+        final ids=<int>[]; for(final e in events){if(e is! Map)continue;final id=int.tryParse(e['id']?.toString()??'');final st=e['status'];final type=st is Map?st['type'].toString().toLowerCase():'';if(id!=null && (type=='finished'||type=='ended'||type=='afterextra'||type=='afterpenalties'))ids.add(id);}
+        return ids.take(5).toList();
+      }catch(_){return <int>[];}
+    }
+    Future<Map<String,double>> eventTeamStats(int eventId,int teamId) async {
+      final s=<String,double>{};
+      try{
+        final info=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
+        if(info.statusCode!=200)return s; final infoData=jsonDecode(info.body);final ev=infoData is Map?infoData['event']:null; if(ev is! Map)return s;
+        final home=ev['homeTeam'];final homeId=home is Map?int.tryParse(home['id']?.toString()??''):null;final isHome=homeId==teamId;
+        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
+        if(res.statusCode!=200)return s; final data=jsonDecode(res.body);final periods=data is Map?data['statistics']:null;if(periods is! List)return s;
+        Map? all;for(final p in periods){if(p is Map&&p['period']=='ALL'){all=p;break;}}if(all==null)return s;
+        final groups=all['groups'];if(groups is! List)return s;final items=<Map>[];for(final g in groups){if(g is Map&&g['statisticsItems'] is List)items.addAll((g['statisticsItems'] as List).whereType<Map>());}
+        for(final item in items){
+          final key=(item['key']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final name=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final normalized=wanted[key]??wanted[name];if(normalized==null)continue;
+          final raw=isHome?(item['homeValue']??item['home']):(item['awayValue']??item['away']);final value=double.tryParse(raw==null?'':raw.toString().replaceAll('%','').replaceAll(',','.'));if(value!=null)s[normalized]=value;
+        }
+      }catch(_){ }
+      return s;
+    }
+    final homeId=await findTeam(m.home);final awayId=await findTeam(m.away);if(homeId==null||awayId==null)return {'stats':out,'source':''};
+    final homeEvents=await recentEvents(homeId);final awayEvents=await recentEvents(awayId);
+    final tasks=<Future<Map<String,double>>>[];for(final id in homeEvents)tasks.add(eventTeamStats(id,homeId));for(final id in awayEvents)tasks.add(eventTeamStats(id,awayId));
+    final rows=await Future.wait(tasks);final hrows=rows.take(homeEvents.length).where((x)=>x.isNotEmpty).toList();final arows=rows.skip(homeEvents.length).where((x)=>x.isNotEmpty).toList();
+    void average(List<Map<String,double>> rows,String prefix){for(final key in wanted.values.toSet()){final values=rows.map((x)=>x[key]).whereType<double>().toList();if(values.isEmpty)continue;out[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse((values.reduce((a,b)=>a+b)/values.length).toStringAsFixed(1));}}
+    average(hrows,'home');average(arows,'away');
+    final samples=hrows.length<arows.length?hrows.length:arows.length;if(out.isEmpty)return {'stats':out,'source':''};
+    return {'stats':out,'source':'SofaScore · medie ultime '+samples.toString()+' gare'};
+  }
   @override Widget build(BuildContext context){
     final m=widget.m;
     return DraggableScrollableSheet(expand:false,initialChildSize:.88,minChildSize:.60,maxChildSize:.96,builder:(_,controller)=>ListView(controller:controller,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
@@ -611,7 +728,8 @@ class _DetailState extends State<_Detail> {
       const SizedBox(height:16),
       Row(children:[Expanded(child:_scoreBox(m.home,m.hs)),const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF60687A),fontWeight:FontWeight.w900))),Expanded(child:_scoreBox(m.away,m.ascore))]),
       const SizedBox(height:18),
-      Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE LIVE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
+      const Padding(padding:EdgeInsets.only(bottom:5),child:Text('Tiri · tiri in porta · angoli · falli · rimesse · parate · cartellini · possesso',style:TextStyle(color:Color(0xFF6F7687),fontSize:9))),
+      Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE LIVE + DETTAGLIATE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
       if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
       if(!loadingStats && detailStats.isNotEmpty)...[
         if(m.status=='NS')const Padding(padding:EdgeInsets.only(bottom:7),child:Text('MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
@@ -626,6 +744,8 @@ class _DetailState extends State<_Detail> {
         const SizedBox(height:8),
         ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:6),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
       ],
+      if(m.proposals.isNotEmpty)...[
+        Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text('TOP PROBABILITÀ · '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
       if(m.proposals.isNotEmpty)...[
         const SizedBox(height:16),
         const Text('PROPOSTA IA',style:TextStyle(color:Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
