@@ -1049,6 +1049,146 @@ jobs:
                   print("API-Football request failed:", path, exc)
                   return None
 
+          def enrich_with_espn_stat_averages(records):
+              upcoming = [x for x in records if x.get("status") == "NS" and x.get("homeTeamId") and x.get("awayTeamId")][:15]
+              if not upcoming:
+                  return
+              slugs = {
+                  "Premier League":"eng.1","Championship":"eng.2","League One":"eng.3","League Two":"eng.4","National League":"eng.5",
+                  "La Liga":"esp.1","Segunda":"esp.2","Serie A":"ita.1","Serie B":"ita.2",
+                  "Bundesliga":"ger.1","2. Bundesliga":"ger.2","Ligue 1":"fra.1","Ligue 2":"fra.2",
+                  "Eredivisie":"ned.1","Turkish Super Lig":"tur.1",
+                  "UEFA Champions League":"uefa.champions","UEFA Europa League":"uefa.europa","UEFA Conference League":"uefa.europa.conf",
+              }
+              team_keys = {}
+              for item in upcoming:
+                  slug = slugs.get(str(item.get("league") or ""))
+                  if slug:
+                      team_keys[(slug, item["homeTeamId"])] = True
+                      team_keys[(slug, item["awayTeamId"])] = True
+
+              def recent_ids(slug, team_id):
+                  try:
+                      data = get_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/teams/{team_id}/schedule?limit=8", 10)
+                      rows = []
+                      for event in data.get("events") or []:
+                          if not isinstance(event, dict):
+                              continue
+                          status_type = ((event.get("status") or {}).get("type") or {})
+                          state_name = str(status_type.get("state") or "").lower()
+                          if as_int(event.get("id")) and (status_type.get("completed") or state_name in {"post","final"}):
+                              rows.append((str(event.get("date") or ""), as_int(event.get("id"))))
+                      rows.sort(reverse=True)
+                      return [event_id for _, event_id in rows[:3]]
+                  except Exception:
+                      return []
+
+              team_recent = {}
+              with ThreadPoolExecutor(max_workers=10) as pool:
+                  futures = {pool.submit(recent_ids, slug, team_id):(slug, team_id) for slug, team_id in team_keys}
+                  for future in as_completed(futures):
+                      team_recent[futures[future]] = future.result()
+
+              event_refs = {}
+              for key, ids in team_recent.items():
+                  for event_id in ids:
+                      event_refs.setdefault(event_id, set()).add(key)
+
+              def get_summary(slug, event_id):
+                  try:
+                      payload = get_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/summary?event={event_id}", 10)
+                      box = payload.get("boxscore") or {}
+                      result = {}
+                      for team in box.get("teams") or []:
+                          if not isinstance(team, dict):
+                              continue
+                          tid = as_int((team.get("team") or {}).get("id"))
+                          if not tid:
+                              continue
+                          values = {}
+                          for stat in team.get("statistics") or []:
+                              if not isinstance(stat, dict):
+                                  continue
+                              key = str(stat.get("name") or "").lower().replace("_","")
+                              value = stat.get("displayValue") if stat.get("displayValue") is not None else stat.get("value")
+                              values[key] = str(value or "")
+                          result[tid] = values
+                      return result
+                  except Exception:
+                      return {}
+
+              summaries = {}
+              with ThreadPoolExecutor(max_workers=12) as pool:
+                  futures = {pool.submit(get_summary, next(iter(refs))[0], event_id):event_id for event_id, refs in event_refs.items()}
+                  for future in as_completed(futures):
+                      summaries[futures[future]] = future.result()
+
+              wanted = {
+                  "shots":"shots","totalshots":"shots","shotsontarget":"on","shotsongoal":"on",
+                  "cornerkicks":"corners","corners":"corners","fouls":"fouls","foulscommitted":"fouls",
+                  "throwins":"throw","saves":"saves","goalkeepersaves":"saves","yellowcards":"yellow","redcards":"red",
+                  "offsides":"offsides","blockedshots":"blocked","tackles":"tackles","clearances":"clearances","possessionpct":"possession"
+              }
+
+              averages = {}
+              for team_key, ids in team_recent.items():
+                  rows = []
+                  for event_id in ids:
+                      values = (summaries.get(event_id) or {}).get(team_key[1])
+                      if values:
+                          rows.append(values)
+                  if not rows:
+                      continue
+                  avg = {}
+                  for source_key, label in wanted.items():
+                      nums = []
+                      for row in rows:
+                          raw = str(row.get(source_key) or "").replace("%","")
+                          try:
+                              nums.append(float(raw.replace(",",".")))
+                          except Exception:
+                              pass
+                      if nums:
+                          avg[label] = round(sum(nums) / len(nums), 1)
+                  averages[team_key] = avg
+
+              added = 0
+              for item in upcoming:
+                  slug = slugs.get(str(item.get("league") or ""))
+                  if not slug:
+                      continue
+                  home_avg = averages.get((slug, item["homeTeamId"])) or {}
+                  away_avg = averages.get((slug, item["awayTeamId"])) or {}
+                  if not home_avg or not away_avg:
+                      continue
+                  key_map = {"shots":"Shots","on":"On","corners":"Corners","fouls":"Fouls","throw":"Throw","saves":"Saves",
+                             "yellow":"Yellow","red":"Red","offsides":"Offsides","blocked":"Blocked","tackles":"Tackles","clearances":"Clearances","possession":"Possession"}
+                  stats = {}
+                  for key, suffix in key_map.items():
+                      if key in home_avg and key in away_avg:
+                          stats["home"+suffix] = home_avg[key]
+                          stats["away"+suffix] = away_avg[key]
+                  if len(stats) < 4:
+                      continue
+                  item["stats"] = stats
+                  item.setdefault("preMatchStats", []).append(
+                      "Medie ultime gare · tiri " + str(home_avg.get("shots","—")) + "–" + str(away_avg.get("shots","—")) +
+                      " · tiri in porta " + str(home_avg.get("on","—")) + "–" + str(away_avg.get("on","—")) +
+                      " · angoli " + str(home_avg.get("corners","—")) + "–" + str(away_avg.get("corners","—"))
+                  )
+                  item.setdefault("preMatchStats", []).append(
+                      "Falli " + str(home_avg.get("fouls","—")) + "–" + str(away_avg.get("fouls","—")) +
+                      " · rimesse " + str(home_avg.get("throw","—")) + "–" + str(away_avg.get("throw","—")) +
+                      " · parate " + str(home_avg.get("saves","—")) + "–" + str(away_avg.get("saves","—"))
+                  )
+                  item.setdefault("preMatchStats", []).append(
+                      "Gialli " + str(home_avg.get("yellow","—")) + "–" + str(away_avg.get("yellow","—")) +
+                      " · fuorigioco " + str(home_avg.get("offsides","—")) + "–" + str(away_avg.get("offsides","—")) +
+                      " · possesso " + str(home_avg.get("possession","—")) + "%–" + str(away_avg.get("possession","—")) + "%"
+                  )
+                  added += 1
+              print("ESPN detailed pre-match averages:", added, "matches")
+
           def enrich_with_api_football(records):
               key = os.environ.get("API_FOOTBALL_KEY", "").strip()
               if not key:
@@ -1335,6 +1475,7 @@ jobs:
           # family for form, so the app can distinguish statistical analysis from
           # a single market quote.
           enrich_with_espn_form(records)
+          enrich_with_espn_stat_averages(records)
 
           records.sort(
               key=lambda x: (
