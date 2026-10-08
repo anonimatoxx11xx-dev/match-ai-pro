@@ -292,7 +292,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : IndexedStack(index:tab,children:[
             _home(top, medium, aiSignals, strong, marketSignals, upcomingFeed),
             _calendar(),
-            _all(),
+            _all(upcomingFeed),
             _ai(aiSignals, strong, marketSignals, upcomingFeed),
           ])),
           _nav(),
@@ -317,8 +317,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text(top.isNotEmpty ? 'TOP AI SIGNAL' : (medium.isNotEmpty ? 'TOP AI SIGNAL' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL')),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
-            const SizedBox(height:5),Text((top.isNotEmpty ? top.first.home : (medium.isNotEmpty ? medium.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile')),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
-            Text((top.isNotEmpty ? top.first.away : (medium.isNotEmpty ? medium.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile')),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
+            const SizedBox(height:5),Text(top.isNotEmpty ? top.first.home : (medium.isNotEmpty ? medium.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile')),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
+            Text(top.isNotEmpty ? top.first.away : (medium.isNotEmpty ? medium.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile')),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
         ])
       ])
@@ -359,7 +359,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ])),
     ]));
   }
-  Widget _all()=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
+  Widget _all(bool upcomingFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
     _title(upcomingFeed?'Prossime partite':'Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed '+matches.first.source+' · refresh automatico'),
     if(matches.isNotEmpty) ...matches.map(_card),
     if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
