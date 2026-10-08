@@ -1391,6 +1391,11 @@ jobs:
                               item = espn_record(event)
                               if item.get("id", 0) <= 0:
                                   continue
+                              # The league slug is the authoritative competition name
+                              # for curated ESPN endpoints; event payloads may say only "Football".
+                              item["league"] = league_name
+                              local_date = datetime.fromtimestamp(item.get("timestamp") or 0, TZ).date().isoformat() if item.get("timestamp") else day.isoformat()
+                              item["time"] = local_date + "|" + str(item.get("time") or "--:--")
                               item["proposalScore"] = 0
                               item["proposals"] = []
                               item["preMatchStats"] = []
@@ -1410,6 +1415,9 @@ jobs:
                           item = espn_record(event)
                           league = str(item.get("league") or "").strip().lower()
                           if item.get("id", 0) > 0 and allowed_league(league):
+                              ts = item.get("timestamp") or 0
+                              local_date = datetime.fromtimestamp(ts, TZ).date().isoformat() if ts else day.isoformat()
+                              item["time"] = local_date + "|" + str(item.get("time") or "--:--")
                               item["proposalScore"] = 0
                               item["proposals"] = []
                               item["preMatchStats"] = []
@@ -1453,6 +1461,7 @@ jobs:
 
           output = {
               "source": "ESPN + multi-source calendar",
+              "windowDays": 14,
               "sourceUrl": "https://site.api.espn.com/apis/site/v2/sports/soccer/",
               "updatedAt": datetime.now(TZ).isoformat(),
               "date": ISO_DATE,
