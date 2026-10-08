@@ -404,14 +404,13 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _nav()=>Container(padding:const EdgeInsets.fromLTRB(6,7,6,7),decoration:BoxDecoration(color:const Color(0xE80A0D17),border:Border(top:BorderSide(color:Colors.white10))),child:Row(children:[_navButton(0,Icons.home_rounded,'Oggi'),_navButton(1,Icons.calendar_month_rounded,'Calendario'),_navButton(2,Icons.sports_soccer_rounded,'Partite'),_navButton(3,Icons.auto_awesome,'AI')]));
 
   Widget _navButton(int i,IconData icon,String label)=>Expanded(child:GestureDetector(onTap:()=>setState(()=>tab=i),child:Container(padding:const EdgeInsets.symmetric(vertical:8),decoration:BoxDecoration(color:tab==i?const Color(0x188B7CFF):Colors.transparent,borderRadius:BorderRadius.circular(14)),child:Column(children:[Icon(icon,size:20,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687)),const SizedBox(height:3),Text(label,style:TextStyle(fontSize:9,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687),fontWeight:FontWeight.w800))]))));
-}
 
   Widget _calendar(){
     final groups=<String,List<Match>>{};
     for(final m in globalCalendarMatches){
       if(m.status=='FT') continue;
       final raw=m.time.split('|').first;
-      if(!RegExp(r'^\d{4}-\d{2}-\d{2}).hasMatch(raw)) continue;
+      if(!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw)) continue;
       groups.putIfAbsent(raw,()=>[]).add(m);
     }
     final days=groups.keys.toList()..sort();
@@ -439,6 +438,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ]
     ]);
   }
+}
 
 class _Detail extends StatelessWidget {
   final Match m; const _Detail(this.m);
@@ -459,7 +459,7 @@ class _Detail extends StatelessWidget {
       const SizedBox(height:15),Row(children:[Expanded(child:_box('AI Index',m.confidence==0?'—':'${m.confidence}/100')),const SizedBox(width:9),Expanded(child:_box('Proposta',m.proposals.isNotEmpty?'DISPONIBILE':'NESSUNA'))])
     ])),const SizedBox(height:12),Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di vincita.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4))
   ]));
-  Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
+  Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'${n}',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
   Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withValues(alpha:.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
 }
 
@@ -467,63 +467,3 @@ class _Background extends StatelessWidget { const _Background(); @override Widge
   Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
   Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
 ]));}
-
-
-).hasMatch(raw)) continue;
-      groups.putIfAbsent(raw,()=>[]).add(m);
-    }
-    final days=groups.keys.toList()..sort();
-    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-      const Text('Calendario',style:TextStyle(fontSize:26,fontWeight:FontWeight.w900)),
-      const SizedBox(height:4),
-      const Text('Prossime partite dei campionati selezionati',style:TextStyle(color:Color(0xFF9299AD),fontSize:12)),
-      const SizedBox(height:4),
-      const Text('Oggi + prossimi 14 giorni',style:TextStyle(color:Color(0xFF6F7687),fontSize:10)),
-      const SizedBox(height:14),
-      if(days.isEmpty) const Padding(padding:EdgeInsets.only(top:80),child:Center(child:Text('Nessuna prossima partita disponibile',style:TextStyle(fontWeight:FontWeight.w800)))),
-      for(final day in days)...[
-        Padding(padding:const EdgeInsets.only(top:14,bottom:8),child:Text(day,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
-        ...groups[day]!.map((m){
-          final parts=m.time.split('|');
-          final time=parts.length>1 ? parts.last : m.time;
-          return Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF0F1422),borderRadius:BorderRadius.circular(18)),child:Row(children:[
-            SizedBox(width:60,child:Text(time,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF7F879B),fontWeight:FontWeight.w800)),
-              const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800))
-            ]))
-          ]));
-        })
-      ]
-    ]);
-  }
-
-class _Detail extends StatelessWidget {
-  final Match m; const _Detail(this.m);
-  @override Widget build(BuildContext context)=>DraggableScrollableSheet(expand:false,initialChildSize:.78,minChildSize:.55,maxChildSize:.94,builder:(_,c)=>ListView(controller:c,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
-    Center(child:Container(width:40,height:4,decoration:BoxDecoration(color:Colors.white24,borderRadius:BorderRadius.circular(8)))),const SizedBox(height:20),
-    Text(m.league.toUpperCase(),textAlign:TextAlign.center,style:const TextStyle(fontSize:9,color:Color(0xFF8B93A5),letterSpacing:1.2)),
-    const SizedBox(height:10),Text('${m.home}  vs  ${m.away}',textAlign:TextAlign.center,style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
-    const SizedBox(height:18),Center(child:_score(m.confidence)),
-    const SizedBox(height:18),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      const Text('PERCHÉ L’IA LO PROPONE',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1)),
-      const SizedBox(height:10),Text(m.reason,style:const TextStyle(fontSize:14,height:1.4)),
-      if(m.preMatchStats.isNotEmpty) ...[
-        const SizedBox(height:14),
-        const Text('DATI PRE-MATCH',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
-        const SizedBox(height:7),
-        ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:5),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
-      ],
-      const SizedBox(height:15),Row(children:[Expanded(child:_box('AI Index',m.confidence==0?'—':'${m.confidence}/100')),const SizedBox(width:9),Expanded(child:_box('Proposta',m.proposals.isNotEmpty?'DISPONIBILE':'NESSUNA'))])
-    ])),const SizedBox(height:12),Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di vincita.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4))
-  ]));
-  Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
-  Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withValues(alpha:.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
-}
-
-class _Background extends StatelessWidget { const _Background(); @override Widget build(BuildContext c)=>IgnorePointer(child:Stack(children:[
-  Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
-  Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
-]));}
-
-
