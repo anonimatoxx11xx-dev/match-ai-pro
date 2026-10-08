@@ -514,10 +514,3 @@ class _Detail extends StatelessWidget {
   Widget _score(int n)=>Container(width:108,height:108,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:92,height:92,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF090C15)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:8,color:Color(0xFF8D95A8)))]))));
   Widget _box(String a,String b)=>Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white.withValues(alpha:.035),borderRadius:BorderRadius.circular(13)),child:Column(children:[Text(a,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9)),const SizedBox(height:4),Text(b,style:const TextStyle(fontWeight:FontWeight.w900))]));
 }
-
-class _Background extends StatelessWidget { const _Background(); @override Widget build(BuildContext c)=>IgnorePointer(child:Stack(children:[
-  Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
-  Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
-]));}
-
-
