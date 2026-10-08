@@ -570,8 +570,8 @@ class _DetailState extends State<_Detail> {
     if(mounted)setState(()=>loadingStats=true);
     final results=await Future.wait([_fetchStats(widget.m),_fetchH2HAndPrediction(widget.m)]);
     if(!mounted)return;
-    final statsResult=results[0] is Map?Map<String,dynamic>.from(results[0] as Map):<String,dynamic>{};
-    final intel=results[1] is Map?Map<String,dynamic>.from(results[1] as Map):<String,dynamic>{};
+    final statsResult=Map<String,dynamic>.from(results[0] as Map);
+    final intel=Map<String,dynamic>.from(results[1] as Map);
     final ctx=intel['aiContext']; final h2h=intel['h2h'];
     setState((){
       detailStats=statsResult['stats'] is Map?Map<String,dynamic>.from(statsResult['stats']):<String,dynamic>{};
