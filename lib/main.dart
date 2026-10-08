@@ -323,7 +323,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         const SizedBox(height:18),Row(children:[
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(top.isNotEmpty ? 'TOP PROBABILITÀ AI' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
+            Text(top.isNotEmpty ? 'TOP PROBABILITÀ IA' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
             const SizedBox(height:5),Text(top.isNotEmpty ? top.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
             Text(top.isNotEmpty ? top.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile'),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
@@ -388,20 +388,33 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget _ai(List<Match> signals, List<Match> strong, List<Match> marketSignals, bool upcomingFeed){
     final total=matches.length;
     final withData=matches.where((m)=>m.stats.isNotEmpty || m.preMatchStats.isNotEmpty).length;
+    final withAi=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && !m.proposals.every((p)=>p.contains('(market signal)'))).length;
     final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
     final source=matches.isEmpty?'Feed':matches.first.source;
+    final coverage=total==0?0.0:withData/total;
+    final aiCoverage=total==0?0.0:withAi/total;
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       _title('AI CENTER',upcomingFeed?'Analisi prossime partite':'Analisi e qualità dati'),
       Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Row(children:[const Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),const SizedBox(width:10),Text(source.toUpperCase().contains('ESPN')?'Motore decisionale + multi-fonte':'Motore decisionale',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),
+        Row(children:[const Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),const SizedBox(width:10),const Expanded(child:Text('Motore decisionale multi-fonte',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900)))]),
+        const SizedBox(height:6),
+        const Text('La percentuale della previsione viene mostrata dentro ogni partita. Qui misuriamo solo la qualità del dataset.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35)),
         const SizedBox(height:14),
-        _metric('Proposte IA',total==0?0:signals.length/total),
-        _metric('Dati partita',total==0?0:withData/total),
+        _metric('Copertura statistiche',coverage),
+        _metric('Partite con analisi IA',aiCoverage),
         _metric('Feed aggiornato',freshness),
         const SizedBox(height:12),
-        Text(marketSignals.isNotEmpty?'I segnali di mercato sono mostrati separatamente. Le proposte IA richiedono evidenze statistiche/forma e non vengono confuse con quote di mercato.':'Le proposte combinano dati disponibili, forma recente e mercato quando presente. Nessuna previsione è una garanzia di risultato.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
+        Row(children:[
+          Expanded(child:_qualityBadge('DATI',withData,total,Colors.cyan)),
+          const SizedBox(width:8),
+          Expanded(child:_qualityBadge('IA',withAi,total,const Color(0xFF42E89A))),
+          const SizedBox(width:8),
+          Expanded(child:_qualityBadge('FONTI',source.contains('Sofa')?2:1,total,const Color(0xFFA9A0FF))),
+        ]),
+        const SizedBox(height:12),
+        Text(marketSignals.isNotEmpty?'I segnali di mercato sono separati dalle previsioni IA. L’IA usa forma recente, scontri diretti e indicatori statistici quando disponibili.':'L’IA combina forma recente, scontri diretti e indicatori offensivi quando i dati sono disponibili. I valori stimati sono marcati come proiezioni.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
       if(strong.isNotEmpty) ..._leagueSections(strong, _card) else ..._leagueSections(signals.take(6).toList(), _card),
@@ -416,6 +429,17 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ],
     ]);
   }
+
+  Widget _qualityBadge(String label,int value,int total,Color color)=>Container(
+    padding:const EdgeInsets.symmetric(vertical:8),
+    decoration:BoxDecoration(color:color.withValues(alpha:.07),borderRadius:BorderRadius.circular(12),border:Border.all(color:color.withValues(alpha:.15))),
+    child:Column(children:[
+      Text(value.toString(),style:TextStyle(color:color,fontSize:15,fontWeight:FontWeight.w900)),
+      Text(label,style:const TextStyle(color:Color(0xFF697184),fontSize:7,fontWeight:FontWeight.w900)),
+      Text(total==0?'—':'di $total',style:const TextStyle(color:Color(0xFF4F586B),fontSize:6)),
+    ])
+  );
+
   List<Widget> _leagueSections(List<Match> items, Widget Function(Match) builder){
     final groups=<String,List<Match>>{};
     for(final m in items){ groups.putIfAbsent(m.league,()=>[]).add(m); }
@@ -670,7 +694,8 @@ class _DetailState extends State<_Detail> {
       'homeCorners':m.stats['homeCorners']??(hs*.32).clamp(2.0,8.0),
       'awayCorners':m.stats['awayCorners']??(as*.32).clamp(2.0,8.0),
       'homeFouls':m.stats['homeFouls']??12.0,'awayFouls':m.stats['awayFouls']??12.0,'homeGoals':hg,'awayGoals':ag,
-      'homeRecent':hf,'awayRecent':af
+      'homeRecent':hf,'awayRecent':af,
+      'sampleHome':hf['games'],'sampleAway':af['games'],'sampleH2H':total
     });
     return {'h2h':h2h,'aiContext':ai,'source':h2h.isEmpty?'':'SofaScore · H2H + forma ultime 6'};
   }
@@ -825,11 +850,15 @@ class _DetailState extends State<_Detail> {
         if(m.status=='NS')Padding(
           padding:const EdgeInsets.only(bottom:7),
           child:Row(children:[
-            const Expanded(child:Text('STATISTICHE DISPONIBILI · MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
+            const Expanded(child:Text('STATISTICHE + PROIEZIONI · MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
             Text(statsStatus,style:const TextStyle(color:Color(0xFF6F7687),fontSize:8,fontWeight:FontWeight.w800)),
           ]),
         ),
         ..._statGrid(detailStats),
+        const Padding(
+          padding:EdgeInsets.only(top:7,bottom:2),
+          child:Text('◆ = dato disponibile dalla fonte · ✦ = proiezione IA quando il dato storico specifico non è disponibile.',style:TextStyle(color:Color(0xFF6F7687),fontSize:8,height:1.3)),
+        ),
       ],
       if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
       if(!loadingStats && detailStats.isNotEmpty && m.status=='NS')const Padding(padding:EdgeInsets.only(top:4,bottom:6),child:Text('Medie delle ultime gare · non sono i dati della partita in programma.',style:TextStyle(color:Color(0xFF7F879A),fontSize:9))),
@@ -859,6 +888,18 @@ class _DetailState extends State<_Detail> {
               const SizedBox(height:7),
               Text(marketOnly?'Indice mercato: '+m.confidence.toString()+'/100':'Probabilità stimata IA: '+m.confidence.toString()+'%',style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900)),
             ])),
+            if(m.proposals.length>1) ...[
+              const SizedBox(height:10),
+              Align(alignment:Alignment.centerLeft,child:Text('ALTRE PROPOSTE',style:TextStyle(color:Color(0xFF6F778A),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:1))),
+              const SizedBox(height:6),
+              ...m.proposals.skip(1).map((p)=>Container(
+                width:double.infinity,
+                margin:const EdgeInsets.only(bottom:6),
+                padding:const EdgeInsets.symmetric(horizontal:11,vertical:9),
+                decoration:BoxDecoration(color:const Color(0x0CFFFFFF),borderRadius:BorderRadius.circular(11),border:Border.all(color:Colors.white10)),
+                child:Text(p,style:const TextStyle(color:Color(0xFFB9BFCC),fontSize:10,fontWeight:FontWeight.w800)),
+              )),
+            ],
           ]);
         }),
       ],
@@ -873,13 +914,20 @@ class _DetailState extends State<_Detail> {
     final hp=aiContext['homeProb'].toString(),dp=aiContext['drawProb'].toString(),ap=aiContext['awayProb'].toString();
     final pick=aiContext['pick'].toString(),conf=aiContext['confidence'].toString();
     final hf=((aiContext['homeForm'] as num?)?.toDouble()??0); final af=((aiContext['awayForm'] as num?)?.toDouble()??0);
+    final hr=aiContext['homeRecent'] is Map?Map<String,dynamic>.from(aiContext['homeRecent'] as Map):<String,dynamic>{};
+    final ar=aiContext['awayRecent'] is Map?Map<String,dynamic>.from(aiContext['awayRecent'] as Map):<String,dynamic>{};
     Widget p(String l,String v,Color c)=>Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:9),decoration:BoxDecoration(color:c.withValues(alpha:.08),borderRadius:BorderRadius.circular(12),border:Border.all(color:c.withValues(alpha:.18))),child:Column(children:[Text(v+'%',style:TextStyle(color:c,fontSize:16,fontWeight:FontWeight.w900)),Text(l,style:const TextStyle(color:Color(0xFF6F778A),fontSize:7,fontWeight:FontWeight.w900))])));
     return Container(margin:const EdgeInsets.only(top:14),padding:const EdgeInsets.all(15),decoration:BoxDecoration(borderRadius:BorderRadius.circular(22),gradient:const LinearGradient(colors:[Color(0xFF18152C),Color(0xFF0F1622)]),border:Border.all(color:const Color(0x3342E89A))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('AI PREDICTION ENGINE',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1))),Text(conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))]),
       const SizedBox(height:8),Text(pick,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const SizedBox(height:10),
       Row(children:[p('CASA',hp,const Color(0xFF39D9FF)),const SizedBox(width:6),p('X',dp,const Color(0xFFFFC857)),const SizedBox(width:6),p('OSPITE',ap,const Color(0xFFA9A0FF))]),
       const SizedBox(height:10),
-      Row(children:[Expanded(child:Text('Forma casa '+(hf*100).round().toString()+'/100',style:const TextStyle(color:Color(0xFF39D9FF),fontSize:8,fontWeight:FontWeight.w900))),Expanded(child:Text('Forma ospite '+(af*100).round().toString()+'/100',textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900)))]),
+      Row(children:[
+        Expanded(child:Text('CASA · forma '+(hf*100).round().toString()+'/100 · '+(hr['w']??0).toString()+'V '+(hr['d']??0).toString()+'N '+(hr['l']??0).toString()+'P',style:const TextStyle(color:Color(0xFF39D9FF),fontSize:8,fontWeight:FontWeight.w900))),
+        Expanded(child:Text('OSPITE · forma '+(af*100).round().toString()+'/100 · '+(ar['w']??0).toString()+'V '+(ar['d']??0).toString()+'N '+(ar['l']??0).toString()+'P',textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900)))
+      ]),
+      const SizedBox(height:6),
+      Text('Campione analizzato: '+(hr['games']??0).toString()+' gare casa · '+(ar['games']??0).toString()+' gare ospite · '+h2hResults.length.toString()+' H2H',style:const TextStyle(color:Color(0xFF626B7D),fontSize:8,fontWeight:FontWeight.w800)),
       const SizedBox(height:9),
       Container(padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:const Color(0x0BFFFFFF),borderRadius:BorderRadius.circular(12)),child:Text('Scontri diretti: '+aiContext['h2hHome'].toString()+' vittorie '+widget.m.home+' · '+aiContext['h2hDraw'].toString()+' pareggi · '+aiContext['h2hAway'].toString()+' vittorie '+widget.m.away,style:const TextStyle(color:Color(0xFF8C95A7),fontSize:8.5,fontWeight:FontWeight.w800))),
       const SizedBox(height:9),const Text('PROIEZIONE STATISTICA',style:TextStyle(color:Color(0xFF70798B),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.8)),
@@ -922,11 +970,13 @@ class _DetailState extends State<_Detail> {
     return [GridView.count(
       crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.18,
       children:defs.entries.map((e){
+        final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
+        final estimated=rawH==null || rawA==null;
         final hv=v(e.value[0]),av=v(e.value[1]); final total=hv+av; final hp=total<=0 ? .5 : hv/total; final ap=total<=0 ? .5 : av/total;
         final accent=e.key=='POSSESSO'?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
         final suffix=e.key=='POSSESSO'?'%':'';
         return Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(children:[
-          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
+          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),if(estimated)const Text('✦ IA',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
           const Spacer(),Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_statNumber(hv)+suffix,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w900)),const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))])),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(_statNumber(av)+suffix,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w900)),const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))]))]),
           const SizedBox(height:8),Row(children:[Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:FractionallySizedBox(widthFactor:hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),const SizedBox(width:4),Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:FractionallySizedBox(widthFactor:ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8))))))])
         ]));
