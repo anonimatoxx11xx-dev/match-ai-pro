@@ -285,7 +285,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     finally{if(mounted)setState(()=>loading=false);}
   }
   @override Widget build(BuildContext context){
-    bool marketSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('(market signal)')); bool conflictSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('Conflitto evidenze')); final upcomingFeed=matches.isNotEmpty && matches.any((m)=>m.status=='NS' && m.time.contains('|')); final aiSignals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60 && !marketSignal(m) && !conflictSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final marketSignals=matches.where((m)=>m.status=='NS' && marketSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final strong=aiSignals.where((m)=>m.confidence>=80).toList(); final top=strong.take(6).toList(); final medium=aiSignals.where((m)=>m.confidence<80).take(6).toList();
+    bool marketSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('(market signal)')); bool conflictSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('Conflitto evidenze')); final upcomingFeed=matches.isNotEmpty && matches.any((m)=>m.status=='NS' && m.time.contains('|')); final aiSignals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60 && !marketSignal(m) && !conflictSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final marketSignals=matches.where((m)=>m.status=='NS' && marketSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final strong=aiSignals.where((m)=>m.confidence>=80).toList(); final top=aiSignals.take(6).toList(); final medium=aiSignals.where((m)=>m.confidence<80).take(6).toList();
     return Scaffold(
       body: Stack(children:[
         const _Background(),
@@ -312,24 +312,35 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     if(matches.isNotEmpty) AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
       padding:const EdgeInsets.all(20),decoration:BoxDecoration(
         borderRadius:BorderRadius.circular(28),
-        gradient:LinearGradient(colors:[const Color(0xFF171A30).withValues(alpha:.96),const Color(0xFF0E1525).withValues(alpha:.96)]),
-        border:Border.all(color:const Color(0xFF8B7CFF).withValues(alpha:.22)),
-        boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.08+pulse.value*.08),blurRadius:35,spreadRadius:2)]
+        gradient:LinearGradient(colors:[const Color(0xFF2A0A19).withValues(alpha:.98),const Color(0xFF15112A).withValues(alpha:.97),const Color(0xFF0A0E19).withValues(alpha:.98)]),
+        border:Border.all(color:const Color(0xFFFF4F79).withValues(alpha:.28)),
+        boxShadow:[BoxShadow(color:const Color(0xFFFF1F55).withValues(alpha:.07+pulse.value*.08),blurRadius:35,spreadRadius:1),BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.08),blurRadius:45,spreadRadius:2)]
       ),
       child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('AI SCANNER',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:2)),
+        Row(children:[const Icon(Icons.bolt_rounded,color:Color(0xFFFF4F79),size:16),const SizedBox(width:5),const Text('AI KILL MODE',style:TextStyle(color:Color(0xFFFF6A8D),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:2))]),
         const SizedBox(height:7),Text(upcomingFeed?'Le migliori prossime\npartite.':'Le migliori partite\ndi oggi.',style:const TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.02)),
         const SizedBox(height:8),Text('${matches.length} partite · ${signals.length} proposte IA · ${marketSignals.length} mercato · ${strong.length} forti · ${matches.isEmpty ? '—' : matches.first.source}',style:const TextStyle(color:Color(0xFF9299AD),fontSize:12)),
         const SizedBox(height:18),Row(children:[
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(top.isNotEmpty ? 'TOP AI SIGNAL' : (medium.isNotEmpty ? 'TOP AI SIGNAL' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL')),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
-            const SizedBox(height:5),Text(top.isNotEmpty ? top.first.home : (medium.isNotEmpty ? medium.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile')),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
-            Text(top.isNotEmpty ? top.first.away : (medium.isNotEmpty ? medium.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile')),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
+            Text(top.isNotEmpty ? 'TOP PROBABILITÀ AI' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
+            const SizedBox(height:5),Text(top.isNotEmpty ? top.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
+            Text(top.isNotEmpty ? top.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile'),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
         ])
       ])
     )),
+    if(top.isNotEmpty) ...[
+      _title('🎯 TOP PROBABILITÀ','Ordinate per indice IA'),
+      ...top.take(3).toList().asMap().entries.map((entry){
+        final m=entry.value; final rank=entry.key+1;
+        return InkWell(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF080B14),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.symmetric(horizontal:14,vertical:12),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(16),border:Border.all(color:rank==1?const Color(0x55FF4F79):Colors.white10)),child:Row(children:[
+          Container(width:28,height:28,decoration:BoxDecoration(shape:BoxShape.circle,color:rank==1?const Color(0x33FF4F79):const Color(0x188B7CFF)),child:Center(child:Text('$rank',style:TextStyle(color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF),fontWeight:FontWeight.w900)))),
+          const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(m.home+' · '+m.away,style:const TextStyle(fontSize:12,fontWeight:FontWeight.w900)),Text(m.pick,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9))])),
+          Text(m.confidence.toString()+'%',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF))),
+        ])));
+      }),
+    ],
     _title('🔥 Proposte IA',upcomingFeed?'Analisi delle prossime partite':'Selezione multi-fonte'),
     ..._leagueSections(top, _card),
     if(top.isEmpty && medium.isNotEmpty) ...[
@@ -576,8 +587,8 @@ class _DetailState extends State<_Detail> {
   Future<void> _loadStats() async {
     if(mounted)setState(()=>loadingStats=true);
     var result=await _fetchStats(widget.m);
-    if((result['stats'] is! Map || (result['stats'] as Map).isEmpty) && widget.m.status=='NS'){
-      result=await _fetchHistoricalStats(widget.m);
+    if(result['stats'] is! Map || (result['stats'] as Map).isEmpty){
+      result=await _fetchHistoricalMatchStats(widget.m);
     }
     if(!mounted)return;
     setState((){
@@ -679,6 +690,107 @@ class _DetailState extends State<_Detail> {
     if(stats.isEmpty)return {'stats':stats,'source':''};
     return {'stats':stats,'source':'ESPN · medie ultime '+games.toString()+' gare'};
   }
+  Future<Map<String,dynamic>> _fetchHistoricalMatchStats(Match m) async {
+    final out=<String,dynamic>{};
+    const wanted=<String,String>{
+      'totalshots':'shots','shots':'shots','shotsontarget':'on','shotsongoal':'on',
+      'cornerkicks':'corners','corners':'corners','fouls':'fouls','throwins':'throw',
+      'goalkeepersaves':'saves','saves':'saves','yellowcards':'yellow','redcards':'red','possession':'possession',
+    };
+
+    Future<int?> findTeam(String name) async {
+      try{
+        final url='https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name);
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return null;
+        final data=jsonDecode(res.body);
+        final results=data is Map ? data['results'] : null;
+        if(results is! List)return null;
+        for(final item in results){
+          if(item is! Map)continue;
+          final entity=item['entity'];
+          if(item['type']=='team' && entity is Map && entity['id']!=null)return int.tryParse(entity['id'].toString());
+          if(entity is Map && entity['name']?.toString().toLowerCase()==name.toLowerCase())return int.tryParse(entity['id']?.toString()??'');
+        }
+      }catch(_){ }
+      return null;
+    }
+
+    Future<List<int>> recentEvents(int teamId) async {
+      try{
+        final url='https://www.sofascore.com/api/v1/team/'+teamId.toString()+'/events/last/0';
+        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return <int>[];
+        final data=jsonDecode(res.body);
+        final events=data is Map ? data['events'] : null;
+        if(events is! List)return <int>[];
+        final ids=<int>[];
+        for(final event in events){
+          if(event is! Map)continue;
+          final status=event['status'];
+          final state=status is Map ? status['type']?.toString().toLowerCase() : '';
+          final id=int.tryParse(event['id']?.toString()??'');
+          if(id!=null && (state=='finished' || state=='ended' || state=='afterextra' || state=='afterpenalties'))ids.add(id);
+        }
+        return ids.take(6).toList();
+      }catch(_){ return <int>[]; }
+    }
+
+    Future<Map<String,double>> eventTeamStats(int eventId,int teamId) async {
+      final stats=<String,double>{};
+      try{
+        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
+        if(res.statusCode!=200)return stats;
+        final data=jsonDecode(res.body);
+        final periods=data is Map ? data['statistics'] : null;
+        if(periods is! List)return stats;
+        Map? all;
+        for(final p in periods){ if(p is Map && p['period']=='ALL'){ all=p; break; } }
+        if(all==null)return stats;
+        final items=<Map>[];
+        final groups=all['groups'];
+        if(groups is List){ for(final group in groups){ if(group is Map && group['statisticsItems'] is List)items.addAll((group['statisticsItems'] as List).whereType<Map>()); } }
+        Map? homeTeam; Map? awayTeam;
+        final home=all['homeTeam']; final away=all['awayTeam'];
+        if(home is Map)homeTeam=home; if(away is Map)awayTeam=away;
+        final homeSide=homeTeam?['id']?.toString()==teamId.toString();
+        for(final item in items){
+          final key=(item['key']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+          final name=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+          final normalized=wanted[key]??wanted[name];
+          if(normalized==null)continue;
+          final raw=homeSide?(item['homeValue']??item['home']):(item['awayValue']??item['away']);
+          final value=double.tryParse(raw?.toString()?.replaceAll('%','').replaceAll(',','.')??'');
+          if(value!=null)stats[normalized]=value;
+        }
+      }catch(_){ }
+      return stats;
+    }
+
+    final homeId=await findTeam(m.home);
+    final awayId=await findTeam(m.away);
+    if(homeId==null || awayId==null)return {'stats':out,'source':''};
+    final homeEvents=await recentEvents(homeId);
+    final awayEvents=await recentEvents(awayId);
+    final tasks=<Future<Map<String,double>>>[];
+    for(final id in homeEvents)tasks.add(eventTeamStats(id,homeId));
+    for(final id in awayEvents)tasks.add(eventTeamStats(id,awayId));
+    final rows=await Future.wait(tasks);
+    final homeRows=rows.take(homeEvents.length).where((x)=>x.isNotEmpty).toList();
+    final awayRows=rows.skip(homeEvents.length).where((x)=>x.isNotEmpty).toList();
+    void avg(List<Map<String,double>> rows,String prefix){
+      for(final key in wanted.values.toSet()){
+        final values=rows.map((x)=>x[key]).whereType<double>().toList();
+        if(values.isEmpty)continue;
+        final mean=values.reduce((a,b)=>a+b)/values.length;
+        out[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse(mean.toStringAsFixed(1));
+      }
+    }
+    avg(homeRows,'home'); avg(awayRows,'away');
+    final samples=homeRows.length<awayRows.length?homeRows.length:awayRows.length;
+    if(out.isEmpty)return {'stats':out,'source':''};
+    return {'stats':out,'source':'SofaScore · medie ultime '+samples.toString()+' gare'};
+  }
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
     final stats=<String,dynamic>{};
     var source='';
@@ -688,7 +800,7 @@ class _DetailState extends State<_Detail> {
       'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
       'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
     };
-    if(m.source.toUpperCase().contains('ESPN')){
+    {
       final slug=map[m.league.toLowerCase().trim()]??'';
       if(slug.isNotEmpty){
         try{
@@ -725,7 +837,7 @@ class _DetailState extends State<_Detail> {
         }catch(_){ }
       }
     }
-    if(m.source.toUpperCase().contains('SOFASCORE') && m.id>0){
+    if(m.id>0){
       for(final base in const ['https://api.sofascore.app/api/v1/event/','https://www.sofascore.com/api/v1/event/']){
         try{
           final res=await http.get(Uri.parse(base+m.id.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:12));
@@ -780,7 +892,7 @@ class _DetailState extends State<_Detail> {
       const SizedBox(height:16),
       Row(children:[Expanded(child:_scoreBox(m.home,m.hs)),const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF60687A),fontWeight:FontWeight.w900))),Expanded(child:_scoreBox(m.away,m.ascore))]),
       const SizedBox(height:18),
-      Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
+      Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE LIVE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
       if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
       if(!loadingStats && detailStats.isNotEmpty)..._statGrid(detailStats),
       if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
@@ -788,7 +900,7 @@ class _DetailState extends State<_Detail> {
       if(statsSource.isNotEmpty)Padding(padding:const EdgeInsets.only(top:6),child:Text('Fonte: '+statsSource,style:const TextStyle(color:Color(0xFF6F7687),fontSize:9))),
       if(m.preMatchStats.isNotEmpty)...[
         const SizedBox(height:18),
-        const Text('DATI PRE-MATCH',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
+        const Text(m.status=='NS'?'DATI PRE-MATCH':'DATI PARTITA',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
         const SizedBox(height:8),
         ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:6),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
       ],
