@@ -323,7 +323,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         const SizedBox(height:18),Row(children:[
           _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
           const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(top.isNotEmpty ? 'TOP PROBABILITÀ IA' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
+            Text(top.isNotEmpty ? 'TOP INDICE IA' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
             const SizedBox(height:5),Text(top.isNotEmpty ? top.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
             Text(top.isNotEmpty ? top.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile'),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
           ]))
@@ -331,13 +331,16 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ])
     )),
     if(top.isNotEmpty) ...[
-      _title('🎯 TOP PROBABILITÀ','Ordinate per indice IA'),
+      _title('🎯 TOP INDICE IA','Ordinate per indice IA'),
       ...top.take(3).toList().asMap().entries.map((entry){
         final m=entry.value; final rank=entry.key+1;
         return InkWell(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF080B14),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.symmetric(horizontal:14,vertical:12),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(16),border:Border.all(color:rank==1?const Color(0x55FF4F79):Colors.white10)),child:Row(children:[
           Container(width:28,height:28,decoration:BoxDecoration(shape:BoxShape.circle,color:rank==1?const Color(0x33FF4F79):const Color(0x188B7CFF)),child:Center(child:Text('$rank',style:TextStyle(color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF),fontWeight:FontWeight.w900)))),
           const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(m.home+' · '+m.away,style:const TextStyle(fontSize:12,fontWeight:FontWeight.w900)),Text(m.pick,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9))])),
-          Text(m.confidence.toString()+'%',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF))),
+          Column(crossAxisAlignment:CrossAxisAlignment.end,children:[
+            Text(m.confidence.toString(),style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF))),
+            const Text('AI INDEX',style:TextStyle(color:Color(0xFF5F6778),fontSize:6,fontWeight:FontWeight.w900)),
+          ]),
         ])));
       }),
     ],
@@ -393,9 +396,14 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
-    final sources=<String>{};
-    for(final m in matches){ if(m.source.trim().isNotEmpty) sources.add(m.source.trim()); }
-    final sourceCount=sources.length;
+    final sourceProviders=<String>{};
+    for(final m in matches){
+      final s=m.source.toLowerCase();
+      if(s.contains('espn')) sourceProviders.add('ESPN');
+      if(s.contains('sofa')) sourceProviders.add('SofaScore');
+      if(sourceProviders.isEmpty && s.trim().isNotEmpty) sourceProviders.add(m.source.trim());
+    }
+    final sourceCount=sourceProviders.length;
     final coverage=total==0?0.0:withStats/total;
     final aiCoverage=total==0?0.0:withAi/total;
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
@@ -412,9 +420,9 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         Row(children:[
           Expanded(child:_qualityBadge('STAT',withStats,total,Colors.cyan)),
           const SizedBox(width:8),
-          Expanded(child:_qualityBadge('VALORI',realStatValues,total,const Color(0xFF42E89A))),
+          Expanded(child:_qualityBadge('VALORI REALI',realStatValues,null,const Color(0xFF42E89A))),
           const SizedBox(width:8),
-          Expanded(child:_qualityBadge('FONTI',sourceCount, total, const Color(0xFFA9A0FF))),
+          Expanded(child:_qualityBadge('FONTI',sourceCount,null,const Color(0xFFA9A0FF))),
         ]),
         const SizedBox(height:12),
         Text(marketSignals.isNotEmpty?'I segnali di mercato sono separati dalle previsioni IA. L’IA usa forma recente, scontri diretti e indicatori statistici quando disponibili.':'L’IA combina forma recente, scontri diretti e indicatori offensivi quando i dati sono disponibili. I valori stimati sono marcati come proiezioni.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
@@ -433,13 +441,13 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     ]);
   }
 
-  Widget _qualityBadge(String label,int value,int total,Color color)=>Container(
+  Widget _qualityBadge(String label,int value,int? total,Color color)=>Container(
     padding:const EdgeInsets.symmetric(vertical:8),
     decoration:BoxDecoration(color:color.withValues(alpha:.07),borderRadius:BorderRadius.circular(12),border:Border.all(color:color.withValues(alpha:.15))),
     child:Column(children:[
       Text(value.toString(),style:TextStyle(color:color,fontSize:15,fontWeight:FontWeight.w900)),
       Text(label,style:const TextStyle(color:Color(0xFF697184),fontSize:7,fontWeight:FontWeight.w900)),
-      Text(total==0?'—':'di $total',style:const TextStyle(color:Color(0xFF4F586B),fontSize:6)),
+      if(total!=null) Text(total==0?'—':'di $total',style:const TextStyle(color:Color(0xFF4F586B),fontSize:6)),
     ])
   );
 
@@ -879,7 +887,7 @@ class _DetailState extends State<_Detail> {
           final marketOnly=m.proposals.every((p)=>p.contains('(market signal)'));
           return Column(children:[
             if(!marketOnly) ...[
-              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text('TOP PROBABILITÀ IA · '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
+              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text('TOP INDICE IA · '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
             ] else ...[
               Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x181F8BFF),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x4439D9FF))),child:Row(children:[const Icon(Icons.show_chart_rounded,color:Color(0xFF39D9FF),size:18),const SizedBox(width:8),const Text('SEGNALE DI MERCATO',style:TextStyle(color:Color(0xFF39D9FF),fontSize:11,fontWeight:FontWeight.w900))])),
             ],
