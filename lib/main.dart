@@ -635,7 +635,7 @@ class _DetailState extends State<_Detail> {
           for(final p in periods){ if(p is Map && p['period']=='ALL'){ all=p; break; } }
           if(all==null)continue;
           final items=<Map>[];
-          final groups=all?['groups'];
+          final groups=all['groups'];
           if(groups is List){ for(final g in groups){ if(g is Map && g['statisticsItems'] is List){ items.addAll((g['statisticsItems'] as List).whereType<Map>()); } } }
           int? val(Map item,String side){ final raw=item[side+'Value']??item[side]; return raw is num ? raw.toInt() : int.tryParse(raw?.toString()??''); }
           void pair(Set<String> names,String h,String a){
