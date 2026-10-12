@@ -69,12 +69,25 @@ jobs:
             echo "No football API secret is configured."
             exit 1
           fi
-      - name: Build release APK
+      - name: Build release APK (retry transient download failures)
+        shell: bash
         run: |
-          flutter build apk --release \
-            --dart-define=API_FOOTBALL_KEY="${{ secrets.API_FOOTBALL_KEY }}" \
-            --dart-define=API_FOOTBALDATA_KEY="${{ secrets.API_FOOTBALDATA_KEY }}" \
-            --dart-define=APP_RAPIDAPI_KEY="${{ secrets.APP_RAPIDAPI_KEY }}"
+          set -e
+          for attempt in 1 2 3; do
+            echo "APK build attempt ${attempt}/3"
+            if flutter build apk --release \
+              --dart-define=API_FOOTBALL_KEY="${{ secrets.API_FOOTBALL_KEY }}" \
+              --dart-define=API_FOOTBALDATA_KEY="${{ secrets.API_FOOTBALDATA_KEY }}" \
+              --dart-define=APP_RAPIDAPI_KEY="${{ secrets.APP_RAPIDAPI_KEY }}"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Build failed; retrying after a short wait in case a dependency server is temporarily unavailable."
+              sleep 15
+            fi
+          done
+          echo "APK build failed after 3 attempts."
+          exit 1
       - run: cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/MatchAIPro.apk
       - uses: actions/upload-artifact@v4
         with:
