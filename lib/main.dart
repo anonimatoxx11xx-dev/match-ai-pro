@@ -653,7 +653,7 @@ class _DetailState extends State<_Detail> {
       aiContext=ctx is Map?Map<String,dynamic>.from(ctx):<String,dynamic>{};
       h2hResults=h2h is List?h2h.whereType<Map>().map((e)=>Map<String,dynamic>.from(e)).toList():<Map<String,dynamic>>[];
       statsSource=(statsResult['source']?.toString()??'')+(intel['source']?.toString().isNotEmpty==true?' + '+intel['source'].toString():'');
-      statsStatus=detailStats.isEmpty?'Nessun dato dettagliato disponibile':detailStats.length.toString()+' indicatori disponibili';
+      statsStatus=detailStats.isEmpty?'Nessun dato dettagliato disponibile':(['homeShots','homeOn','homeCorners','homeFouls','homeThrow','homeSaves','homeYellow','homeRed','homeOffsides','homeBlocked','homeTackles','homeClearances','homePossession'].where((key)=>_number(detailStats[key])!=null||_number(detailStats[key.replaceFirst('home','away')])!=null).length).toString()+' categorie con dati';
       loadingStats=false;
     });
   }
@@ -901,14 +901,14 @@ class _DetailState extends State<_Detail> {
         if(m.status=='NS')Padding(
           padding:const EdgeInsets.only(bottom:7),
           child:Row(children:[
-            const Expanded(child:Text('DATI REALI + PROIEZIONI IA · MEDIE ULTIME GARE',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
+            const Expanded(child:Text('MEDIE STORICHE PRE-MATCH · ULTIME GARE DISPONIBILI',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
             Text(statsStatus,style:const TextStyle(color:Color(0xFF6F7687),fontSize:8,fontWeight:FontWeight.w800)),
           ]),
         ),
-        ..._statGrid(detailStats),
+        ..._statGrid(detailStats,preMatch:m.status=='NS'),
         const Padding(
           padding:EdgeInsets.only(top:7,bottom:2),
-          child:Text('◆ = dato reale disponibile dalla fonte · ✦ = proiezione IA usata solo quando il dato storico specifico non è disponibile.',style:TextStyle(color:Color(0xFF6F7687),fontSize:8,height:1.3)),
+          child:Text('Queste schede mostrano medie delle gare precedenti, non dati della partita in programma. Il possesso usa la scala 0–100%; le medie delle due squadre, calcolate su gare diverse, possono non sommare a 100%.',style:TextStyle(color:Color(0xFF6F7687),fontSize:8,height:1.3)),
         ),
       ],
       if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
@@ -1005,23 +1005,24 @@ class _DetailState extends State<_Detail> {
   Widget _scoreBox(String team,int? score)=>Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Column(children:[Text(score==null?'—':'$score',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),Text(team,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,color:Color(0xFF9299AD)))]));
 
 
-  List<Widget> _statGrid(Map<String,dynamic> s){
+  List<Widget> _statGrid(Map<String,dynamic> s,{required bool preMatch}){
     final defs=<String,List<String>>{'TIRI':['homeShots','awayShots'],'TIRI IN PORTA':['homeOn','awayOn'],'ANGOLI':['homeCorners','awayCorners'],'FALLI':['homeFouls','awayFouls'],'RIMESSE LATERALI':['homeThrow','awayThrow'],'PARATE':['homeSaves','awaySaves'],'CARTELLINI GIALLI':['homeYellow','awayYellow'],'CARTELLINI ROSSI':['homeRed','awayRed'],'FUORIGIOCO':['homeOffsides','awayOffsides'],'TIRI BLOCCATI':['homeBlocked','awayBlocked'],'CONTRASTI':['homeTackles','awayTackles'],'SPAZZATE':['homeClearances','awayClearances'],'POSSESSO':['homePossession','awayPossession']};
     return [GridView.count(
       crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.18,
       children:defs.entries.map((e){
         final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
-        final estimated=rawH==null || rawA==null;
+        final missingCount=(rawH==null?1:0)+(rawA==null?1:0);
         final hv=rawH, av=rawA;
         final total=(hv??0)+(av??0);
-        final hp=total<=0 ? .5 : (hv??0)/total;
-        final ap=total<=0 ? .5 : (av??0)/total;
+        final isPossession=e.key=='POSSESSO';
+        final hp=isPossession?((hv??0)/100):(total<=0 ? .5 : (hv??0)/total);
+        final ap=isPossession?((av??0)/100):(total<=0 ? .5 : (av??0)/total);
         final accent=e.key=='POSSESSO'?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
         final suffix=e.key=='POSSESSO'?'%':'';
         return Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(children:[
-          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),if(estimated)const Text('DATI N/D',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
+          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),if(preMatch&&missingCount==0)const Text('MEDIA',style:TextStyle(color:Color(0xFF39D9FF),fontSize:7,fontWeight:FontWeight.w900)),if(missingCount==1)const Text('PARZIALE',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),if(missingCount==2)const Text('DATI N/D',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
           const Spacer(),Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(hv==null?'—':_statNumber(hv)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:hv==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))])),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(av==null?'—':_statNumber(av)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:av==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))]))]),
-          const SizedBox(height:8),Row(children:[Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),const SizedBox(width:4),Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8))))))])
+          const SizedBox(height:8),Row(children:[Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?hp.clamp(0.0,1.0):hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),const SizedBox(width:4),Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?ap.clamp(0.0,1.0):ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8))))))])
         ]));
       }).toList()
     )];
