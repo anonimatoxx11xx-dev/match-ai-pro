@@ -1006,34 +1006,23 @@ class _DetailState extends State<_Detail> {
 
 
   List<Widget> _statGrid(Map<String,dynamic> s){
-    double v(String key){
-      final x=_number(s[key]); if(x!=null)return x;
-      final shots=_number(s[key.startsWith('home')?'homeShots':'awayShots'])??10;
-      if(key.contains('Corners'))return (shots*.32).clamp(2.0,8.0);
-      if(key.contains('Throw'))return 22.0;
-      if(key.contains('Tackles'))return 14.0;
-      if(key.contains('Clearances'))return 16.0;
-      if(key.contains('Offsides'))return (shots/9).clamp(.4,2.5);
-      if(key.contains('Blocked'))return (shots*.2).clamp(.5,4.0);
-      if(key.contains('Possession'))return 50.0;
-      if(key.contains('Saves'))return 2.5;
-      if(key.contains('Yellow'))return 1.8;
-      if(key.contains('Red'))return .1;
-      return 0.0;
-    }
+    double? v(String key)=>_number(s[key]);
     final defs=<String,List<String>>{'TIRI':['homeShots','awayShots'],'TIRI IN PORTA':['homeOn','awayOn'],'ANGOLI':['homeCorners','awayCorners'],'FALLI':['homeFouls','awayFouls'],'RIMESSE LATERALI':['homeThrow','awayThrow'],'PARATE':['homeSaves','awaySaves'],'CARTELLINI GIALLI':['homeYellow','awayYellow'],'CARTELLINI ROSSI':['homeRed','awayRed'],'FUORIGIOCO':['homeOffsides','awayOffsides'],'TIRI BLOCCATI':['homeBlocked','awayBlocked'],'CONTRASTI':['homeTackles','awayTackles'],'SPAZZATE':['homeClearances','awayClearances'],'POSSESSO':['homePossession','awayPossession']};
     return [GridView.count(
       crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.18,
       children:defs.entries.map((e){
         final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
         final estimated=rawH==null || rawA==null;
-        final hv=v(e.value[0]),av=v(e.value[1]); final total=hv+av; final hp=total<=0 ? .5 : hv/total; final ap=total<=0 ? .5 : av/total;
+        final hv=rawH, av=rawA;
+        final total=(hv??0)+(av??0);
+        final hp=total<=0 ? .5 : (hv??0)/total;
+        final ap=total<=0 ? .5 : (av??0)/total;
         final accent=e.key=='POSSESSO'?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
         final suffix=e.key=='POSSESSO'?'%':'';
         return Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(children:[
-          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),if(estimated)const Text('✦ IA',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
-          const Spacer(),Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_statNumber(hv)+suffix,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w900)),const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))])),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(_statNumber(av)+suffix,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w900)),const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))]))]),
-          const SizedBox(height:8),Row(children:[Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:FractionallySizedBox(widthFactor:hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),const SizedBox(width:4),Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:FractionallySizedBox(widthFactor:ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8))))))])
+          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),if(estimated)const Text('DATI N/D',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
+          const Spacer(),Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(hv==null?'—':_statNumber(hv)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:hv==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))])),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(av==null?'—':_statNumber(av)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:av==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))]))]),
+          const SizedBox(height:8),Row(children:[Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),const SizedBox(width:4),Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8))))))])
         ]));
       }).toList()
     )];
