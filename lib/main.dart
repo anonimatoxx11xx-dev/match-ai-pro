@@ -1006,7 +1006,6 @@ class _DetailState extends State<_Detail> {
 
 
   List<Widget> _statGrid(Map<String,dynamic> s){
-    double? v(String key)=>_number(s[key]);
     final defs=<String,List<String>>{'TIRI':['homeShots','awayShots'],'TIRI IN PORTA':['homeOn','awayOn'],'ANGOLI':['homeCorners','awayCorners'],'FALLI':['homeFouls','awayFouls'],'RIMESSE LATERALI':['homeThrow','awayThrow'],'PARATE':['homeSaves','awaySaves'],'CARTELLINI GIALLI':['homeYellow','awayYellow'],'CARTELLINI ROSSI':['homeRed','awayRed'],'FUORIGIOCO':['homeOffsides','awayOffsides'],'TIRI BLOCCATI':['homeBlocked','awayBlocked'],'CONTRASTI':['homeTackles','awayTackles'],'SPAZZATE':['homeClearances','awayClearances'],'POSSESSO':['homePossession','awayPossession']};
     return [GridView.count(
       crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.18,
