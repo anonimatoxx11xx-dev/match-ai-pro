@@ -56,6 +56,18 @@ jobs:
           }
 
           session = requests.Session()
+          HISTORICAL_RESULTS = {}
+
+          def halftime_score(competitor):
+              """Return the first-half score only when ESPN exposes separate periods."""
+              lines = competitor.get("linescores") or []
+              if len(lines) < 2:
+                  return None
+              first = lines[0]
+              if isinstance(first, dict):
+                  return as_int(first.get("value", first.get("displayValue")))
+              return as_int(first)
+
 
           def get_json(url, timeout=20):
               response = session.get(
@@ -110,6 +122,8 @@ jobs:
                   "live": live,
                   "scoreHome": None if str((event.get("status") or {}).get("type") or "").lower() in {"notstarted","scheduled"} else score_value(event.get("homeScore")),
                   "scoreAway": None if str((event.get("status") or {}).get("type") or "").lower() in {"notstarted","scheduled"} else score_value(event.get("awayScore")),
+                  "scoreHTHome": as_int((event.get("homeScore") or {}).get("period1")),
+                  "scoreHTAway": as_int((event.get("awayScore") or {}).get("period1")),
                   "homeTeamId": as_int(home.get("id")),
                   "awayTeamId": as_int(away.get("id")),
                   "priority": as_int(tournament.get("priority")) or 0,
@@ -147,6 +161,8 @@ jobs:
               status = "LIVE" if live else ("FT" if completed else "NS")
               score_home = score_value(home.get("score")) if completed or live else None
               score_away = score_value(away.get("score")) if completed or live else None
+              score_ht_home = halftime_score(home)
+              score_ht_away = halftime_score(away)
               local_dt = datetime.fromtimestamp(timestamp, TZ) if timestamp else None
               display_time = local_dt.strftime("%H:%M") if local_dt else "--:--"
               if event.get("_match_ai_future_date") and local_dt:
@@ -162,6 +178,8 @@ jobs:
                   "live": live,
                   "scoreHome": score_home,
                   "scoreAway": score_away,
+                  "scoreHTHome": score_ht_home,
+                  "scoreHTAway": score_ht_away,
                   "homeTeamId": as_int(home_team.get("id") or home.get("id")),
                   "awayTeamId": as_int(away_team.get("id") or away.get("id")),
                   "priority": 1,
@@ -334,6 +352,23 @@ jobs:
                           if not hn or not an or hs is None or aa is None:
                               continue
                           event_time = parse_provider_timestamp(event.get("date"))
+                          event_id = as_int(event.get("id"))
+                          if event_id is not None:
+                              competitors_meta = (comp.get("league") or comp.get("competition") or {})
+                              HISTORICAL_RESULTS[str(event_id)] = {
+                                  "id": event_id,
+                                  "home": hn,
+                                  "away": an,
+                                  "league": str(competitors_meta.get("name") or "Football") if isinstance(competitors_meta, dict) else "Football",
+                                  "time": datetime.fromtimestamp(event_time, TZ).strftime("%H:%M") if event_time else "--:--",
+                                  "timestamp": event_time,
+                                  "status": "FT",
+                                  "scoreHome": hs,
+                                  "scoreAway": aa,
+                                  "scoreHTHome": halftime_score(home),
+                                  "scoreHTAway": halftime_score(away),
+                                  "sources": ["ESPN historical results"],
+                              }
                           rec = (hn, an, hs, aa, event_time)
                           for team_name, gf, ga in ((hn, hs, aa), (an, aa, hs)):
                               key = normalize_team_name(team_name)
@@ -633,6 +668,8 @@ jobs:
                   "live": status == "LIVE",
                   "scoreHome": score_home,
                   "scoreAway": score_away,
+                  "scoreHTHome": None,
+                  "scoreHTAway": None,
                   "homeTeamId": None,
                   "awayTeamId": None,
                   "priority": 1,
@@ -1472,6 +1509,8 @@ jobs:
               cached_item.setdefault("live", False)
               cached_item.setdefault("scoreHome", None)
               cached_item.setdefault("scoreAway", None)
+              cached_item.setdefault("scoreHTHome", None)
+              cached_item.setdefault("scoreHTAway", None)
               cached_item.setdefault("homeTeamId", None)
               cached_item.setdefault("awayTeamId", None)
               cached_item.setdefault("priority", 0)
@@ -1722,6 +1761,57 @@ jobs:
           ):
               with open(path, "w", encoding="utf-8") as f:
                   json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
+
+          # Persist the recent completed-score sample so the app can grade
+          # forecasts even if the phone was closed when a match finished.
+          history_by_key = {}
+          history_path = "data/results.json"
+          try:
+              with open(history_path, "r", encoding="utf-8") as f:
+                  previous = json.load(f)
+              for old_result in previous.get("results") or []:
+                  if isinstance(old_result, dict):
+                      old_ts = as_int(old_result.get("timestamp")) or 0
+                      if old_ts and old_ts >= int((NOW - timedelta(days=35)).timestamp()):
+                          norm_home = normalize_team_name(old_result.get("home"))
+                          norm_away = normalize_team_name(old_result.get("away"))
+                          local_day = datetime.fromtimestamp(old_ts, TZ).date().isoformat()
+                          history_by_key[(norm_home, norm_away, local_day)] = old_result
+          except Exception:
+              pass
+
+          combined_history = list(HISTORICAL_RESULTS.values())
+          combined_history.extend(x for x in records if x.get("status") == "FT")
+          cutoff_ts = int((NOW - timedelta(days=35)).timestamp())
+          for result in combined_history:
+              if not isinstance(result, dict):
+                  continue
+              if as_int(result.get("scoreHome")) is None or as_int(result.get("scoreAway")) is None:
+                  continue
+              timestamp = as_int(result.get("timestamp")) or 0
+              if not timestamp or timestamp < cutoff_ts:
+                  continue
+              norm_home = normalize_team_name(result.get("home"))
+              norm_away = normalize_team_name(result.get("away"))
+              local_day = datetime.fromtimestamp(timestamp, TZ).date().isoformat()
+              key = (norm_home, norm_away, local_day)
+              old_result = history_by_key.get(key, {})
+              merged = dict(old_result)
+              merged.update(result)
+              # Never erase a half-time score already recovered by a better source.
+              for half_key in ("scoreHTHome", "scoreHTAway"):
+                  if result.get(half_key) is None and old_result.get(half_key) is not None:
+                      merged[half_key] = old_result[half_key]
+              history_by_key[key] = merged
+
+          history_results = sorted(history_by_key.values(), key=lambda x: x.get("timestamp") or 0, reverse=True)[:4000]
+          with open(history_path, "w", encoding="utf-8") as f:
+              json.dump({
+                  "source": "ESPN historical scoreboards + current match feed",
+                  "updatedAt": datetime.now(TZ).isoformat(),
+                  "windowDays": 35,
+                  "results": history_results,
+              }, f, ensure_ascii=False, separators=(",", ":"))
 
           print(
               "Feed ready: "
