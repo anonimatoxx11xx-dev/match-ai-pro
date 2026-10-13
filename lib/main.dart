@@ -321,6 +321,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   final scorePredictor=ScorePredictionEngine();
   bool _loadInProgress=false;
   List<Map<String,dynamic>> predictionRecords=[];
+  String predictionFilter='PROSSIME';
   late final AnimationController pulse=AnimationController(vsync:this,duration:const Duration(seconds:3))..repeat(reverse:true);
   List<Match> matches=[]; List<Match> calendarMatches=[]; bool loading=true; bool calendarLoading=true; String? error; int tab=0; Timer? refreshTimer;
   @override void initState(){super.initState();load(); refreshTimer=Timer.periodic(const Duration(minutes:1), (_) => load());}
@@ -471,6 +472,9 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final live=predictionRecords.where((p)=>p['gradedFT']!=true && p['status']=='LIVE').toList();
     final completed=predictionRecords.where((p)=>p['gradedFT']==true).toList()
       ..sort((a,b)=>(b['timestamp'] as num? ?? 0).compareTo(a['timestamp'] as num? ?? 0));
+    final showUpcoming=predictionFilter=='PROSSIME'||predictionFilter=='TUTTE';
+    final showLive=predictionFilter=='LIVE'||predictionFilter=='TUTTE';
+    final showCompleted=predictionFilter=='VERIFICATE'||predictionFilter=='TUTTE';
     final ftChecked=completed.length;
     final ftExact=completed.where((p)=>p['ftExact']==true).length;
     final ftOutcome=completed.where((p)=>p['ft1x2Correct']==true).length;
@@ -509,21 +513,37 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         ' · Squadre ricalibrate: '+scorePredictor.trainedTeams.toString()+
         ' · Quota media gol 1° tempo appresa: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%',
         style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4))),
-      _title('PROSSIME PARTITE','Previsioni con campione storico'),
-      if(upcoming.isEmpty)_empty('Nessun pronostico sufficientemente supportato',
-        'Servono risultati recenti verificabili per entrambe le squadre. La scheda non inventa un punteggio quando il campione manca. Riprova dopo il prossimo aggiornamento del feed.'),
-      ...upcoming.take(35).map(_forecastCard),
-      if(live.isNotEmpty)...[
+      const SizedBox(height:14),
+      SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[
+        for(final filter in <String>['PROSSIME','LIVE','VERIFICATE','TUTTE'])
+          Padding(padding:const EdgeInsets.only(right:7),child:ChoiceChip(
+            label:Text(filter,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w900)),
+            selected:predictionFilter==filter,showCheckmark:false,
+            selectedColor:const Color(0xFF282343),backgroundColor:const Color(0xFF101522),
+            side:BorderSide(color:predictionFilter==filter?const Color(0xFFA9A0FF):Colors.white10),
+            labelStyle:TextStyle(color:predictionFilter==filter?const Color(0xFFC6BDFF):const Color(0xFF80889A)),
+            onSelected:(_)=>setState(()=>predictionFilter=filter),
+          )),
+      ])),
+      if(showUpcoming)...[
+        _title('PROSSIME PARTITE','Pronostici con campione storico'),
+        if(upcoming.isEmpty)_empty('Nessun pronostico sufficientemente supportato',
+          'Servono risultati recenti verificabili per entrambe le squadre. La scheda non inventa un punteggio quando il campione manca. Riprova dopo il prossimo aggiornamento del feed.'),
+        ...upcoming.take(35).map(_forecastCard),
+      ],
+      if(showLive&&live.isNotEmpty)...[
         _title('PARTITE IN CORSO','Pronostico congelato al pre-match'),
         ...live.take(12).map(_forecastCard),
       ],
-      _title('APPRENDIMENTO DAI RISULTATI','Verifiche e correzioni salvate sul dispositivo'),
+      if(showCompleted)...[
+        _title('APPRENDIMENTO DAI RISULTATI','Verifiche e correzioni salvate sul dispositivo'),
       Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(
         color:const Color(0xFF101522),borderRadius:BorderRadius.circular(16),border:Border.all(color:Colors.white10)),
         child:const Text('Quando arriva il risultato finale, il pronostico viene confrontato con il punteggio reale. Gli errori sono registrati e aggiornano il correttore dei gol per squadra; i risultati del primo tempo, quando disponibili, ricalibrano la quota di gol attesa prima dell’intervallo. I dati di apprendimento rimangono salvati sul telefono.',
           style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.45))),
-      if(completed.isEmpty)_empty('Nessuna verifica completata','I pronostici saranno valutati quando le partite avranno un risultato finale nella fonte dati.'),
-      ...completed.take(18).map(_gradedForecastCard),
+      if(showCompleted&&completed.isEmpty)_empty('Nessuna verifica completata','I pronostici saranno valutati quando le partite avranno un risultato finale nella fonte dati.'),
+      if(showCompleted)...completed.take(18).map(_gradedForecastCard),
+      ],
       const SizedBox(height:8),
     ]);
   }
@@ -654,17 +674,18 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
     final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
     final sourceProviders=<String>{};
+    void addSource(String source){
+      final s=source.toLowerCase();
+      if(s.contains('espn')) sourceProviders.add('ESPN');
+      if(s.contains('sofa')) sourceProviders.add('SofaScore');
+      if(s.contains('football-data')) sourceProviders.add('Football-Data');
+      if(s.contains('api-football')||s.contains('api-sports')) sourceProviders.add('API-Football');
+    }
     for(final m in matches){
-      for(final src in m.sources){
-        final s=src.toLowerCase();
-        if(s.contains('espn')) sourceProviders.add('ESPN');
-        if(s.contains('sofa')) sourceProviders.add('SofaScore');
-      }
-      if(m.sources.isEmpty){
-        final s=m.source.toLowerCase();
-        if(s.contains('espn')) sourceProviders.add('ESPN');
-        if(s.contains('sofa')) sourceProviders.add('SofaScore');
-      }
+      for(final src in m.sources){addSource(src);}
+      // The feed-level source can report an additional provider even when each
+      // individual fixture carries only its primary source tag.
+      addSource(m.source);
     }
     final sourceCount=sourceProviders.length;
     final coverage=total==0?0.0:withStats/total;
@@ -1454,9 +1475,15 @@ class _DetailState extends State<_Detail> {
           ]),
           const SizedBox(height:14),
           Row(children:[
-            Expanded(child:_scoreBox(widget.m.home,home==null?null:home.round())),
+            Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:12,horizontal:8),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(14)),child:Column(children:[
+              Text(home==null?'—':_statNumber(home)+(possession?'%':''),style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),
+              const Text('CASA',style:TextStyle(fontSize:8,color:Color(0xFF9299AD))),
+            ]))),
             const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF687184),fontWeight:FontWeight.w900))),
-            Expanded(child:_scoreBox(widget.m.away,away==null?null:away.round())),
+            Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:12,horizontal:8),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(14)),child:Column(children:[
+              Text(away==null?'—':_statNumber(away)+(possession?'%':''),style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),
+              const Text('OSPITE',style:TextStyle(fontSize:8,color:Color(0xFF9299AD))),
+            ]))),
           ]),
           const SizedBox(height:8),
           Text(home==null||away==null?'Uno o entrambi i valori non sono disponibili nella fonte.':formattedDiff,
