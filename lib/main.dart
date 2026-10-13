@@ -84,16 +84,24 @@ class MatchService {
   static const _feedUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json';
   static const _calendarUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/calendar.json';
   static const _resultsUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/results.json';
+  List<Map<String,dynamic>> _resultHistoryCache=<Map<String,dynamic>>[];
+  DateTime? _resultHistoryFetchedAt;
 
   Future<List<Map<String,dynamic>>> resultHistory() async {
+    final now=DateTime.now();
+    final fetchedAt=_resultHistoryFetchedAt;
+    if(_resultHistoryCache.isNotEmpty && fetchedAt!=null &&
+        now.difference(fetchedAt)<const Duration(minutes:15)) return _resultHistoryCache;
     try {
-      final response = await http.get(Uri.parse('$_resultsUrl?t=${DateTime.now().millisecondsSinceEpoch}')).timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200) return <Map<String,dynamic>>[];
+      final response = await http.get(Uri.parse('$_resultsUrl?t=${now.millisecondsSinceEpoch}')).timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return _resultHistoryCache;
       final decoded = jsonDecode(response.body);
-      if (decoded is! Map || decoded['results'] is! List) return <Map<String,dynamic>>[];
-      return (decoded['results'] as List).whereType<Map>().map((item)=>Map<String,dynamic>.from(item)).toList();
+      if (decoded is! Map || decoded['results'] is! List) return _resultHistoryCache;
+      _resultHistoryCache=(decoded['results'] as List).whereType<Map>().map((item)=>Map<String,dynamic>.from(item)).toList();
+      _resultHistoryFetchedAt=DateTime.now();
+      return _resultHistoryCache;
     } catch (_) {
-      return <Map<String,dynamic>>[];
+      return _resultHistoryCache;
     }
   }
 
