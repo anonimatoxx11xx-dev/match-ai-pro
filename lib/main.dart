@@ -1391,14 +1391,17 @@ class _DetailState extends State<_Detail> {
         children:visibleDefs.map((e){
           final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
           final missingCount=(rawH==null?1:0)+(rawA==null?1:0);
-          final hv=rawH,av=rawA;
-          final total=(hv??0)+(av??0);
+          final double? hv=rawH, av=rawA;
+          final total=(hv??0.0)+(av??0.0);
           final isPossession=e.key=='POSSESSO';
-          final hp=isPossession?((hv??0)/100):(total<=0?.5:(hv??0)/total);
-          final ap=isPossession?((av??0)/100):(total<=0?.5:(av??0)/total);
+          final double hp=isPossession
+              ? ((hv??0.0)/100.0)
+              : (total<=0 ? 0.5 : (hv??0.0)/total);
+          final double ap=isPossession
+              ? ((av??0.0)/100.0)
+              : (total<=0 ? 0.5 : (av??0.0)/total);
           final accent=isPossession?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
           final suffix=isPossession?'%':'';
-          final label=preMatch?'MEDIA STORICA':'DATO PARTITA';
           return Material(color:Colors.transparent,child:InkWell(
             borderRadius:BorderRadius.circular(18),
             onTap:()=>_showStatInsight(e.key,hv,av,preMatch,isPossession),
@@ -1425,9 +1428,9 @@ class _DetailState extends State<_Detail> {
                 ]),
                 const SizedBox(height:8),
                 Row(children:[
-                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?hp.clamp(0.0,1.0):hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),
+                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:(isPossession?hp.clamp(0.0,1.0):hp.clamp(.05,.95)).toDouble(),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),
                   const SizedBox(width:4),
-                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?ap.clamp(0.0,1.0):ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8)))))),
+                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:(isPossession?ap.clamp(0.0,1.0):ap.clamp(.05,.95)).toDouble(),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8)))))),
                 ]),
                 const SizedBox(height:3),
                 const Text('TOCCA PER DETTAGLI',textAlign:TextAlign.right,style:TextStyle(color:Color(0xFF4F586B),fontSize:5.5,fontWeight:FontWeight.w900)),
@@ -1437,7 +1440,7 @@ class _DetailState extends State<_Detail> {
         }).toList()
       ),
       Padding(padding:const EdgeInsets.only(top:7,bottom:3),child:Text(
-        'Mostrate: '+visibleDefs.length.toString()+' categorie · '+label,
+        'Mostrate: '+visibleDefs.length.toString()+' categorie · '+(preMatch?'MEDIA STORICA':'DATO PARTITA'),
         style:const TextStyle(color:Color(0xFF5F687A),fontSize:8))),
     ])];
   }
