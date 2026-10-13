@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
+import 'score_prediction_engine.dart';
 
 // Match AI Pro live build marker
 // Curated men's + women's competition feed
@@ -46,6 +47,7 @@ class Match {
   final int aiHomeProb, aiDrawProb, aiAwayProb;
   final String aiPick;
   final int? homeTeamId, awayTeamId;
+  final int? htHome, htAway, timestamp;
   Match({
     required this.id,
     required this.home,
@@ -71,6 +73,9 @@ class Match {
     this.aiPick = '',
     this.homeTeamId,
     this.awayTeamId,
+    this.htHome,
+    this.htAway,
+    this.timestamp,
   });
 }
 
@@ -78,6 +83,19 @@ class MatchService {
   bool lastFeedWasValid=false;
   static const _feedUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json';
   static const _calendarUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/calendar.json';
+  static const _resultsUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/results.json';
+
+  Future<List<Map<String,dynamic>>> resultHistory() async {
+    try {
+      final response = await http.get(Uri.parse('$_resultsUrl?t=${DateTime.now().millisecondsSinceEpoch}')).timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return <Map<String,dynamic>>[];
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['results'] is! List) return <Map<String,dynamic>>[];
+      return (decoded['results'] as List).whereType<Map>().map((item)=>Map<String,dynamic>.from(item)).toList();
+    } catch (_) {
+      return <Map<String,dynamic>>[];
+    }
+  }
 
   Future<List<Match>> calendar() async {
     final stamp=DateTime.now().millisecondsSinceEpoch;
@@ -219,6 +237,9 @@ class MatchService {
       live:m['live'] == true || m['status']?.toString() == 'LIVE',
       hs:_int(m['scoreHome']),
       ascore:_int(m['scoreAway']),
+      htHome:_int(m['scoreHTHome']),
+      htAway:_int(m['scoreHTAway']),
+      timestamp:_int(m['timestamp']),
       status:m['status']?.toString() ?? 'NS',
       confidence:confidence,
       pick:proposals.isNotEmpty ? proposals.first : (m['status']?.toString() == 'LIVE' ? 'Live • dati in aggiornamento' : 'Nessuna proposta forte'),
@@ -258,6 +279,9 @@ class MatchService {
       live:live,
       hs:_int(_map(e['homeScore'])['current']),
       ascore:_int(_map(e['awayScore'])['current']),
+      htHome:_int(_map(e['homeScore'])['period1']),
+      htAway:_int(_map(e['awayScore'])['period1']),
+      timestamp:ts,
       status:live ? 'LIVE' : (finished ? 'FT' : 'NS'),
       confidence:0,
       pick:finished ? 'Partita terminata' : 'Dati live SofaScore',
@@ -285,19 +309,47 @@ class MatchService {
 class Dashboard extends StatefulWidget { const Dashboard({super.key}); @override State<Dashboard> createState()=>_DashboardState(); }
 class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
   final service=MatchService();
+  final scorePredictor=ScorePredictionEngine();
+  bool _loadInProgress=false;
+  List<Map<String,dynamic>> predictionRecords=[];
   late final AnimationController pulse=AnimationController(vsync:this,duration:const Duration(seconds:3))..repeat(reverse:true);
   List<Match> matches=[]; List<Match> calendarMatches=[]; bool loading=true; bool calendarLoading=true; String? error; int tab=0; Timer? refreshTimer;
   @override void initState(){super.initState();load(); refreshTimer=Timer.periodic(const Duration(minutes:1), (_) => load());}
   @override void dispose(){refreshTimer?.cancel(); pulse.dispose(); super.dispose();}
   Future<void> load() async {
-    if(mounted)setState(()=>loading=true);
+    if(_loadInProgress)return;
+    _loadInProgress=true;
+    if(matches.isEmpty && mounted)setState(()=>loading=true);
     try{
-      final results=await Future.wait([service.today(),service.calendar()]);
+      final results=await Future.wait([service.today(),service.calendar(),service.resultHistory()]);
+      final todayMatches=results[0] as List<Match>;
+      final nextCalendar=results[1] as List<Match>;
+      final historicalResults=results[2] as List<Map<String,dynamic>>;
+      await scorePredictor.update(
+        fixtures:todayMatches.map(_predictionInput).toList(),
+        historicalResults:historicalResults,
+      );
       if(!mounted)return;
-      globalCalendarMatches=results[1]; setState(() { matches=results[0]; calendarMatches=results[1]; error=null; });
+      globalCalendarMatches=nextCalendar;
+      setState(() {
+        matches=todayMatches;
+        calendarMatches=nextCalendar;
+        predictionRecords=scorePredictor.records;
+        error=null;
+      });
     }catch(_){if(!mounted)return;setState(()=>error=null);}
-    finally{if(mounted)setState(()=>loading=false);}
+    finally{
+      _loadInProgress=false;
+      if(mounted && loading)setState(()=>loading=false);
+    }
   }
+
+  Map<String,dynamic> _predictionInput(Match m)=> <String,dynamic>{
+    'id':m.id,'home':m.home,'away':m.away,'league':m.league,'time':m.time,
+    'timestamp':m.timestamp??0,'status':m.status,
+    'scoreHome':m.hs,'scoreAway':m.ascore,'scoreHTHome':m.htHome,'scoreHTAway':m.htAway,
+    'preMatchStats':m.preMatchStats,'stats':m.stats,'updatedAt':m.updatedAt,
+  };
   @override Widget build(BuildContext context){
     bool marketSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('(market signal)')); bool conflictSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('Conflitto evidenze')); final upcomingFeed=matches.isNotEmpty && matches.any((m)=>m.status=='NS' && m.time.contains('|')); final aiSignals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60 && !marketSignal(m) && !conflictSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final marketSignals=matches.where((m)=>m.status=='NS' && marketSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final strong=aiSignals.where((m)=>m.confidence>=80).toList(); final top=aiSignals.take(6).toList(); final medium=aiSignals.where((m)=>m.confidence<80).take(6).toList();
     return Scaffold(
