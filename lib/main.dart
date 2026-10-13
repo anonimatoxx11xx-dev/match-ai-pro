@@ -455,6 +455,187 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       ..._leagueSections(calendarMatches.take(20).toList(), _calendarCard),
     ],
   ]);
+
+  Widget _predictionsView(){
+    final upcoming=predictionRecords.where((p)=>p['gradedFT']!=true && p['status']=='NS').toList()
+      ..sort((a,b)=>(a['timestamp'] as num? ?? 0).compareTo(b['timestamp'] as num? ?? 0));
+    final live=predictionRecords.where((p)=>p['gradedFT']!=true && p['status']=='LIVE').toList();
+    final completed=predictionRecords.where((p)=>p['gradedFT']==true).toList()
+      ..sort((a,b)=>(b['timestamp'] as num? ?? 0).compareTo(a['timestamp'] as num? ?? 0));
+    final ftChecked=completed.length;
+    final ftExact=completed.where((p)=>p['ftExact']==true).length;
+    final ftOutcome=completed.where((p)=>p['ft1x2Correct']==true).length;
+    final htChecked=predictionRecords.where((p)=>p['gradedHT']==true).length;
+    final htExact=predictionRecords.where((p)=>p['gradedHT']==true && p['htExact']==true).length;
+    final errors=completed.where((p)=>p['ftExact']!=true).length;
+    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,24),children:[
+      _title('⚽ PRONOSTICI IA','Risultato esatto · 1° tempo + finale'),
+      Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(
+        color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20),
+        border:Border.all(color:const Color(0x338B7CFF))),
+        child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Row(children:[
+            const Icon(Icons.psychology_alt_rounded,color:Color(0xFFA9A0FF),size:25),
+            const SizedBox(width:9),
+            const Expanded(child:Text('Motore dei risultati esatti',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900))),
+          ]),
+          const SizedBox(height:7),
+          const Text('Il modello combina gol fatti e subiti nelle ultime partite di entrambe le squadre, forza offensiva/difensiva, fattore casa e calibrazione dagli errori precedenti. Aggiorna i pronostici prima del calcio d’inizio e conserva quelli definitivi quando la partita inizia.',
+            style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.45)),
+          const SizedBox(height:8),
+          const Text('Il punteggio all’intervallo è una stima separata derivata dalla distribuzione temporale dei gol; viene calibrato quando la fonte fornisce il risultato reale del primo tempo. Non è una certezza né una garanzia di vincita.',
+            style:TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4)),
+        ]),
+      ),
+      const SizedBox(height:10),
+      GridView.count(crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
+        crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:2.3,children:[
+          _predictionMetric('FINALI VERIFICATI',ftChecked.toString(),const Color(0xFF39D9FF)),
+          _predictionMetric('ESATTO FINALE',ftExact.toString()+' / '+ftChecked.toString(),const Color(0xFF42E89A)),
+          _predictionMetric('ESATTO 1° TEMPO',htExact.toString()+' / '+htChecked.toString(),const Color(0xFFA9A0FF)),
+          _predictionMetric('ERRORI MEMORIZZATI',errors.toString(),const Color(0xFFFFC857)),
+        ]),
+      Padding(padding:const EdgeInsets.fromLTRB(3,7,3,0),child:Text(
+        'Esito 1X2 corretto: '+ftOutcome.toString()+' / '+ftChecked.toString()+
+        ' · Squadre ricalibrate: '+scorePredictor.trainedTeams.toString()+
+        ' · Quota media gol 1° tempo appresa: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%',
+        style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4))),
+      _title('PROSSIME PARTITE','Previsioni con campione storico'),
+      if(upcoming.isEmpty)_empty('Nessun pronostico sufficientemente supportato',
+        'Servono risultati recenti verificabili per entrambe le squadre. La scheda non inventa un punteggio quando il campione manca. Riprova dopo il prossimo aggiornamento del feed.'),
+      ...upcoming.take(35).map(_forecastCard),
+      if(live.isNotEmpty)...[
+        _title('PARTITE IN CORSO','Pronostico congelato al pre-match'),
+        ...live.take(12).map(_forecastCard),
+      ],
+      _title('APPRENDIMENTO DAI RISULTATI','Verifiche e correzioni salvate sul dispositivo'),
+      Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(
+        color:const Color(0xFF101522),borderRadius:BorderRadius.circular(16),border:Border.all(color:Colors.white10)),
+        child:const Text('Quando arriva il risultato finale, il pronostico viene confrontato con il punteggio reale. Gli errori sono registrati e aggiornano il correttore dei gol per squadra; i risultati del primo tempo, quando disponibili, ricalibrano la quota di gol attesa prima dell’intervallo. I dati di apprendimento rimangono salvati sul telefono.',
+          style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.45))),
+      if(completed.isEmpty)_empty('Nessuna verifica completata','I pronostici saranno valutati quando le partite avranno un risultato finale nella fonte dati.'),
+      ...completed.take(18).map(_gradedForecastCard),
+      const SizedBox(height:8),
+    ]);
+  }
+
+  Widget _predictionMetric(String label,String value,Color accent)=>Container(
+    padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),
+    decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(14),
+      border:Border.all(color:accent.withValues(alpha:.25))),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
+      Text(value,style:TextStyle(fontSize:18,fontWeight:FontWeight.w900,color:accent)),
+      const SizedBox(height:3),
+      Text(label,style:const TextStyle(fontSize:8,color:Color(0xFF7F879A),fontWeight:FontWeight.w900)),
+    ]),
+  );
+
+  String _forecastPercent(dynamic value){
+    final n=value is num?value.toDouble():double.tryParse((value??'').toString());
+    return n==null?'—':n.toStringAsFixed(1)+'%';
+  }
+
+  Widget _forecastScoreBox(String label,dynamic home,dynamic away,dynamic probability)=>Expanded(
+    child:Container(padding:const EdgeInsets.symmetric(horizontal:10,vertical:11),
+      decoration:BoxDecoration(color:const Color(0xFF181D2D),borderRadius:BorderRadius.circular(13),
+        border:Border.all(color:const Color(0x1FFFFFFF))),
+      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text(label,style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.6)),
+        const SizedBox(height:6),
+        Text((home??'—').toString()+' - '+(away??'—').toString(),
+          style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900,color:Color(0xFFE8EAF2))),
+        const SizedBox(height:3),
+        Text('Prob. esatto stimata '+_forecastPercent(probability),
+          style:const TextStyle(color:Color(0xFF7F879A),fontSize:8)),
+      ]),
+    ),
+  );
+
+  Widget _forecastCard(Map<String,dynamic> p){
+    final evidence=p['evidence'] is Map?Map<String,dynamic>.from(p['evidence']):<String,dynamic>{};
+    final updated=DateTime.tryParse((p['updatedAt']??'').toString())?.toLocal();
+    final updatedTime=updated==null?'':updated.toString().substring(11,16);
+    final revisions=(p['revisions'] as List? ?? const <dynamic>[]).length;
+    final ongoing=p['status']=='LIVE';
+    return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),
+      decoration:BoxDecoration(color:const Color(0xFF101522),borderRadius:BorderRadius.circular(19),
+        border:Border.all(color:ongoing?const Color(0x55FF5D73):const Color(0x33A9A0FF))),
+      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Row(children:[
+          Expanded(child:Text((p['league']??'CALCIO').toString().toUpperCase(),
+            style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.8))),
+          if(ongoing)const Text('LIVE · STIMA CONGELATA',style:TextStyle(color:Color(0xFFFF8293),fontSize:7,fontWeight:FontWeight.w900)),
+          if(!ongoing)Text((p['time']??'--:--').toString().split('|').last,
+            style:const TextStyle(color:Color(0xFFFFC857),fontSize:9,fontWeight:FontWeight.w900)),
+        ]),
+        const SizedBox(height:7),
+        Text((p['home']??'Casa').toString()+'  vs  '+(p['away']??'Ospite').toString(),
+          style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900)),
+        const SizedBox(height:11),
+        Row(children:[
+          _forecastScoreBox('1° TEMPO',p['predHTHome'],p['predHTAway'],p['probHTExact']),
+          const SizedBox(width:8),
+          _forecastScoreBox('RISULTATO FINALE',p['predFTHome'],p['predFTAway'],p['probFTExact']),
+        ]),
+        const SizedBox(height:9),
+        Text('Campione: casa '+(evidence['homeGames']??'—').toString()+
+          ' gare · ospite '+(evidence['awayGames']??'—').toString()+' gare',
+          style:const TextStyle(color:Color(0xFF9299AD),fontSize:9,fontWeight:FontWeight.w800)),
+        const SizedBox(height:5),
+        Text('1X2 modello: 1 '+_forecastPercent(p['probHome'])+
+          ' · X '+_forecastPercent(p['probDraw'])+
+          ' · 2 '+_forecastPercent(p['probAway']),
+          style:const TextStyle(color:Color(0xFFB7BED0),fontSize:9,fontWeight:FontWeight.w800)),
+        const SizedBox(height:7),
+        Text((p['basis']??'Modello basato sui risultati recenti').toString(),
+          style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.35)),
+        const SizedBox(height:5),
+        Text('Aggiornata '+(updatedTime.isEmpty?'quando disponibili i dati':updatedTime)+
+          ' · revisioni pre-match '+revisions.toString(),
+          style:const TextStyle(color:Color(0xFF626B7D),fontSize:8)),
+      ]),
+    );
+  }
+
+  Widget _gradedForecastCard(Map<String,dynamic> p){
+    final exact=p['ftExact']==true;
+    final htWasGraded=p['gradedHT']==true;
+    final actualFT=(p['actualHome']??'—').toString()+' - '+(p['actualAway']??'—').toString();
+    final predictedFT=(p['predFTHome']??'—').toString()+' - '+(p['predFTAway']??'—').toString();
+    final predictedHT=(p['predHTHome']??'—').toString()+' - '+(p['predHTAway']??'—').toString();
+    final actualHT=htWasGraded?(p['actualHTHome']??'—').toString()+' - '+(p['actualHTAway']??'—').toString():'non fornito dalla fonte';
+    final accent=exact?const Color(0xFF42E89A):const Color(0xFFFFC857);
+    return Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(12),
+      decoration:BoxDecoration(color:const Color(0xFF101522),borderRadius:BorderRadius.circular(15),
+        border:Border.all(color:accent.withValues(alpha:.25))),
+      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Row(children:[
+          Icon(exact?Icons.check_circle_rounded:Icons.school_rounded,color:accent,size:17),
+          const SizedBox(width:7),
+          Expanded(child:Text((p['home']??'Casa').toString()+' - '+(p['away']??'Ospite').toString(),
+            style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900))),
+          Text(exact?'ESATTO':'ERRORE REGISTRATO',
+            style:TextStyle(color:accent,fontSize:7.5,fontWeight:FontWeight.w900)),
+        ]),
+        const SizedBox(height:6),
+        Text('Finale previsto '+predictedFT+' · reale '+actualFT,
+          style:const TextStyle(color:Color(0xFFE2E5ED),fontSize:10,fontWeight:FontWeight.w800)),
+        const SizedBox(height:4),
+        Text('1° tempo previsto '+predictedHT+' · reale '+actualHT,
+          style:const TextStyle(color:Color(0xFF9299AD),fontSize:9)),
+        if(p['ft1x2Correct']==true)const Padding(padding:EdgeInsets.only(top:4),
+          child:Text('Esito 1X2 corretto, anche se il punteggio esatto non è stato centrato.',
+            style:TextStyle(color:Color(0xFF42E89A),fontSize:8))),
+        if(p['learningNote']!=null)Padding(padding:const EdgeInsets.only(top:6),
+          child:Text(p['learningNote'].toString(),
+            style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,height:1.35))),
+        if(!htWasGraded)const Padding(padding:EdgeInsets.only(top:4),
+          child:Text('L’intervallo reale non è ancora disponibile nella fonte: resta non valutato.',
+            style:TextStyle(color:Color(0xFF626B7D),fontSize:8))),
+      ]),
+    );
+  }
+
   Widget _ai(List<Match> signals, List<Match> strong, List<Match> marketSignals, bool upcomingFeed){
     final total=matches.length;
     final withStats=matches.where((m)=>m.stats.isNotEmpty).length;
