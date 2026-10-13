@@ -983,9 +983,6 @@ class _DetailState extends State<_Detail> {
       }
     }catch(_){}
 
-    var hh=0,hd=0,ha=0;
-    for(final e in h2h){if(e['winner']=='home')hh++;else if(e['winner']=='away')ha++;else hd++;}
-    final total=h2h.length;
     final homeGames=hf['games'] as int;
     final awayGames=af['games'] as int;
     if(homeGames<2||awayGames<2){
