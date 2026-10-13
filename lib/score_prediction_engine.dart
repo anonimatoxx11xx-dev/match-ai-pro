@@ -87,6 +87,19 @@ class ScorePredictionEngine {
       if (result != null && _grade(forecast, result)) changed = true;
     }
 
+    // Mark saved forecasts as live as soon as the feed reports kick-off.
+    // Their displayed score stays frozen at the last pre-match update.
+    for (final fixture in fixtures) {
+      if ((fixture['status'] ?? '').toString().toUpperCase() != 'LIVE') continue;
+      final key = _fixtureKey(fixture);
+      final index = _records.indexWhere((item) => item['key'] == key);
+      if (index >= 0 && _records[index]['gradedFT'] != true &&
+          _records[index]['status'] != 'LIVE') {
+        _records[index]['status'] = 'LIVE';
+        changed = true;
+      }
+    }
+
     // Refresh pre-kick-off forecasts when form evidence or learned calibration
     // changes. Once a match starts, preserve the last pre-match call.
     for (final fixture in fixtures) {
