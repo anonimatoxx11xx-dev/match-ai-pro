@@ -205,6 +205,22 @@ class ScorePredictionEngine {
         awayLambda * _halfTimeFraction);
     final full = _bestExactScore(homeLambda, awayLambda);
     final oneXtwo = _oneXtwo(homeLambda, awayLambda);
+    final homeDist = _poisson(homeLambda, 8);
+    final awayDist = _poisson(awayLambda, 8);
+    var over15 = 0.0, over25 = 0.0, under35 = 0.0, bothScore = 0.0;
+    for (var h = 0; h < homeDist.length; h++) {
+      for (var a = 0; a < awayDist.length; a++) {
+        final probability = homeDist[h] * awayDist[a];
+        if (h + a >= 2) over15 += probability;
+        if (h + a >= 3) over25 += probability;
+        if (h + a <= 3) under35 += probability;
+        if (h > 0 && a > 0) bothScore += probability;
+      }
+    }
+    final alternatives = _topScores(homeLambda, awayLambda, 4);
+    final sampleMin = math.min(homeGames, awayGames);
+    final dataQuality = sampleMin >= 5 && (h2h['games'] as int) >= 2
+        ? 'Buona' : (sampleMin >= 3 ? 'Media' : 'Limitata');
 
     final relevantForm = pre.where((line) =>
         line.toLowerCase().startsWith('forma casa:') ||
@@ -236,6 +252,14 @@ class ScorePredictionEngine {
       'probHome': oneXtwo['home'],
       'probDraw': oneXtwo['draw'],
       'probAway': oneXtwo['away'],
+      'probOver15': over15 * 100.0,
+      'probOver25': over25 * 100.0,
+      'probUnder35': under35 * 100.0,
+      'probBTTSYes': bothScore * 100.0,
+      'probBTTSNo': (1.0 - bothScore) * 100.0,
+      'topScores': alternatives,
+      'dataQuality': dataQuality,
+      'sampleMin': sampleMin,
       'lambdaHome': homeLambda,
       'lambdaAway': awayLambda,
       'htFraction': _halfTimeFraction,
@@ -408,6 +432,25 @@ class ScorePredictionEngine {
     return values;
   }
 
+  List<Map<String, dynamic>> _topScores(
+      double homeLambda, double awayLambda, int count) {
+    final home = _poisson(homeLambda, 7);
+    final away = _poisson(awayLambda, 7);
+    final scores = <Map<String, dynamic>>[];
+    for (var h = 0; h < home.length; h++) {
+      for (var a = 0; a < away.length; a++) {
+        scores.add(<String, dynamic>{
+          'home': h,
+          'away': a,
+          'probability': home[h] * away[a] * 100.0,
+        });
+      }
+    }
+    scores.sort((a, b) => (b['probability'] as double)
+        .compareTo(a['probability'] as double));
+    return scores.take(count).toList();
+  }
+
   Map<String, double> _oneXtwo(double homeLambda, double awayLambda) {
     final homeP = _poisson(homeLambda, 8);
     final awayP = _poisson(awayLambda, 8);
@@ -484,6 +527,17 @@ class ScorePredictionEngine {
       forecast['ft1x2Correct'] =
           _outcome(_integer(forecast['predFTHome']), _integer(forecast['predFTAway'])) ==
               _outcome(actualHome, actualAway);
+      final actualOutcome = _outcome(actualHome, actualAway);
+      final pHome = (_double(forecast['probHome']) ?? 0.0) / 100.0;
+      final pDraw = (_double(forecast['probDraw']) ?? 0.0) / 100.0;
+      final pAway = (_double(forecast['probAway']) ?? 0.0) / 100.0;
+      forecast['brier1X2'] =
+          math.pow(pHome - (actualOutcome == '1' ? 1.0 : 0.0), 2) +
+          math.pow(pDraw - (actualOutcome == 'X' ? 1.0 : 0.0), 2) +
+          math.pow(pAway - (actualOutcome == '2' ? 1.0 : 0.0), 2);
+      forecast['goalError'] =
+          (_integer(forecast['predFTHome'])! - actualHome).abs() +
+          (_integer(forecast['predFTAway'])! - actualAway).abs();
       forecast['gradedFT'] = true;
       forecast['status'] = 'FT';
       forecast['gradedAt'] = DateTime.now().toIso8601String();
