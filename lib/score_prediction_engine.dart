@@ -104,7 +104,7 @@ class ScorePredictionEngine {
     // changes. Once a match starts, preserve the last pre-match call.
     for (final fixture in fixtures) {
       if ((fixture['status'] ?? '').toString().toUpperCase() != 'NS') continue;
-      final prediction = _makePrediction(fixture);
+      final prediction = _makePrediction(fixture, results);
       if (prediction == null) continue;
       final key = _fixtureKey(fixture);
       final existingIndex = _records.indexWhere((item) => item['key'] == key);
@@ -160,24 +160,43 @@ class ScorePredictionEngine {
     if (changed) await _save();
   }
 
-  Map<String, dynamic>? _makePrediction(Map<String, dynamic> fixture) {
+  Map<String, dynamic>? _makePrediction(
+      Map<String, dynamic> fixture, List<Map<String, dynamic>> historicalResults) {
     final pre = (fixture['preMatchStats'] as List? ?? const <dynamic>[])
         .map((value) => value.toString()).toList();
-    final homeForm = _parseForm(pre, 'casa');
-    final awayForm = _parseForm(pre, 'ospiti');
+    final kickOff = _integer(fixture['timestamp']) ?? 0;
+    final homeName = (fixture['home'] ?? '').toString();
+    final awayName = (fixture['away'] ?? '').toString();
+    final homeHistory = _recentTeamForm(homeName, kickOff, historicalResults);
+    final awayHistory = _recentTeamForm(awayName, kickOff, historicalResults);
+    final parsedHome = _parseForm(pre, 'casa');
+    final parsedAway = _parseForm(pre, 'ospiti');
+    final homeForm = homeHistory ?? parsedHome;
+    final awayForm = awayHistory ?? parsedAway;
     if (homeForm == null || awayForm == null) return null;
     final homeGames = homeForm['games'] as int;
     final awayGames = awayForm['games'] as int;
     if (homeGames < 2 || awayGames < 2) return null;
 
-    final homeAttack = (homeForm['gf'] as int) / homeGames;
-    final homeConceded = (homeForm['ga'] as int) / homeGames;
-    final awayAttack = (awayForm['gf'] as int) / awayGames;
-    final awayConceded = (awayForm['ga'] as int) / awayGames;
-    final baseHome = ((homeAttack * 0.58) + (awayConceded * 0.42)) * 1.06;
-    final baseAway = ((awayAttack * 0.58) + (homeConceded * 0.42)) * 0.94;
-    final homeKey = _teamKey((fixture['home'] ?? '').toString());
-    final awayKey = _teamKey((fixture['away'] ?? '').toString());
+    final homeAttack = _formAverage(homeForm, 'gf');
+    final homeConceded = _formAverage(homeForm, 'ga');
+    final awayAttack = _formAverage(awayForm, 'gf');
+    final awayConceded = _formAverage(awayForm, 'ga');
+    if (homeAttack == null || homeConceded == null ||
+        awayAttack == null || awayConceded == null) return null;
+
+    var baseHome = ((homeAttack * 0.58) + (awayConceded * 0.42)) * 1.06;
+    var baseAway = ((awayAttack * 0.58) + (homeConceded * 0.42)) * 0.94;
+    final h2h = _recentHeadToHead(homeName, awayName, kickOff, historicalResults);
+    if ((h2h['games'] as int) >= 3) {
+      final h2hHome = h2h['homeGF'] as double;
+      final h2hAway = h2h['awayGF'] as double;
+      baseHome = baseHome * 0.88 + h2hHome * 0.12;
+      baseAway = baseAway * 0.88 + h2hAway * 0.12;
+    }
+
+    final homeKey = _teamKey(homeName);
+    final awayKey = _teamKey(awayName);
     final homeLambda =
         (baseHome + (_teamGoalBias[homeKey] ?? 0.0)).clamp(0.10, 4.0).toDouble();
     final awayLambda =
@@ -191,17 +210,23 @@ class ScorePredictionEngine {
         line.toLowerCase().startsWith('forma casa:') ||
         line.toLowerCase().startsWith('forma ospiti:')).toList();
     final signature = jsonEncode(<dynamic>[
-      relevantForm, _teamGoalBias[homeKey] ?? 0.0,
-      _teamGoalBias[awayKey] ?? 0.0, _halfTimeFraction]);
+      relevantForm,
+      homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
+      awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
+      h2h['games'], h2h['homeGF'], h2h['awayGF'],
+      _teamGoalBias[homeKey] ?? 0.0,
+      _teamGoalBias[awayKey] ?? 0.0,
+      _halfTimeFraction,
+    ]);
 
     return <String, dynamic>{
       'id': _integer(fixture['id']),
-      'home': (fixture['home'] ?? 'Casa').toString(),
-      'away': (fixture['away'] ?? 'Ospite').toString(),
+      'home': homeName.isEmpty ? 'Casa' : homeName,
+      'away': awayName.isEmpty ? 'Ospite' : awayName,
       'league': (fixture['league'] ?? 'Calcio').toString(),
       'time': (fixture['time'] ?? '--:--').toString(),
       'date': _fixtureDate(fixture),
-      'timestamp': _integer(fixture['timestamp']) ?? 0,
+      'timestamp': kickOff,
       'predHTHome': half['home'],
       'predHTAway': half['away'],
       'probHTExact': half['probability'],
@@ -215,17 +240,123 @@ class ScorePredictionEngine {
       'lambdaAway': awayLambda,
       'htFraction': _halfTimeFraction,
       'evidence': <String, dynamic>{
-        'homeGames': homeGames, 'awayGames': awayGames,
-        'homeGF': homeForm['gf'], 'homeGA': homeForm['ga'],
-        'awayGF': awayForm['gf'], 'awayGA': awayForm['ga'],
+        'homeGames': homeGames,
+        'awayGames': awayGames,
+        'homeGF': homeForm['gfAvg'],
+        'homeGA': homeForm['gaAvg'],
+        'awayGF': awayForm['gfAvg'],
+        'awayGA': awayForm['gaAvg'],
+        'homeSource': homeForm['source'] ?? 'Forma aggregata feed',
+        'awaySource': awayForm['source'] ?? 'Forma aggregata feed',
+        'h2hGames': h2h['games'],
+        'h2hHomeGF': h2h['homeGF'],
+        'h2hAwayGF': h2h['awayGF'],
       },
       'basis':
-          'Gol fatti/subiti nelle ultime gare, forza offensiva e difensiva avversaria, lieve vantaggio casa e calibrazione dagli esiti precedenti.',
+          'Gol recenti pesati per recenza, gol fatti/subiti, fattore casa, H2H attenuati e correzione appresa dagli esiti verificati.',
       'signature': signature,
       'updatedAt': DateTime.now().toIso8601String(),
     };
   }
 
+  double? _formAverage(Map<String, dynamic> form, String key) {
+    final direct = _double(form[key + 'Avg']);
+    if (direct != null) return direct;
+    final games = _integer(form['games']) ?? 0;
+    final total = _double(form[key]);
+    if (games <= 0 || total == null) return null;
+    return total / games;
+  }
+
+  Map<String, dynamic>? _recentTeamForm(
+    String team,
+    int kickOff,
+    List<Map<String, dynamic>> history,
+  ) {
+    if (team.trim().isEmpty || kickOff <= 0) return null;
+    final rows = <Map<String, dynamic>>[];
+    final earliest = kickOff - const Duration(days: 75).inSeconds;
+    for (final result in history) {
+      final status = (result['status'] ?? '').toString().toUpperCase();
+      if (status != 'FT' && status != 'FINISHED') continue;
+      final timestamp = _integer(result['timestamp']) ?? 0;
+      if (timestamp <= earliest || timestamp >= kickOff) continue;
+      final homeGoals = _integer(result['scoreHome']);
+      final awayGoals = _integer(result['scoreAway']);
+      if (homeGoals == null || awayGoals == null) continue;
+      final home = (result['home'] ?? '').toString();
+      final away = (result['away'] ?? '').toString();
+      if (_similarTeamNames(team, home)) {
+        rows.add(<String, dynamic>{'timestamp': timestamp, 'gf': homeGoals, 'ga': awayGoals});
+      } else if (_similarTeamNames(team, away)) {
+        rows.add(<String, dynamic>{'timestamp': timestamp, 'gf': awayGoals, 'ga': homeGoals});
+      }
+    }
+    rows.sort((a, b) =>
+        (_integer(b['timestamp']) ?? 0).compareTo(_integer(a['timestamp']) ?? 0));
+    if (rows.length < 3) return null;
+    final recent = rows.take(6).toList();
+    var weightedGoals = 0.0;
+    var weightedAllowed = 0.0;
+    var weightTotal = 0.0;
+    var goalsTotal = 0;
+    var allowedTotal = 0;
+    for (var i = 0; i < recent.length; i++) {
+      final weight = math.pow(0.86, i).toDouble();
+      final goals = _integer(recent[i]['gf']) ?? 0;
+      final allowed = _integer(recent[i]['ga']) ?? 0;
+      weightedGoals += goals * weight;
+      weightedAllowed += allowed * weight;
+      weightTotal += weight;
+      goalsTotal += goals;
+      allowedTotal += allowed;
+    }
+    if (weightTotal <= 0) return null;
+    return <String, dynamic>{
+      'games': recent.length,
+      'gf': goalsTotal,
+      'ga': allowedTotal,
+      'gfAvg': weightedGoals / weightTotal,
+      'gaAvg': weightedAllowed / weightTotal,
+      'source': 'Risultati verificati recenti',
+    };
+  }
+
+  Map<String, dynamic> _recentHeadToHead(
+    String homeName,
+    String awayName,
+    int kickOff,
+    List<Map<String, dynamic>> history,
+  ) {
+    if (kickOff <= 0) return <String, dynamic>{'games': 0, 'homeGF': 0.0, 'awayGF': 0.0};
+    final rows = <Map<String, dynamic>>[];
+    final earliest = kickOff - const Duration(days: 365).inSeconds;
+    for (final result in history) {
+      final timestamp = _integer(result['timestamp']) ?? 0;
+      if (timestamp <= earliest || timestamp >= kickOff) continue;
+      final status = (result['status'] ?? '').toString().toUpperCase();
+      if (status != 'FT' && status != 'FINISHED') continue;
+      final homeGoals = _integer(result['scoreHome']);
+      final awayGoals = _integer(result['scoreAway']);
+      if (homeGoals == null || awayGoals == null) continue;
+      final eventHome = (result['home'] ?? '').toString();
+      final eventAway = (result['away'] ?? '').toString();
+      if (_similarTeamNames(homeName, eventHome) && _similarTeamNames(awayName, eventAway)) {
+        rows.add(<String, dynamic>{'timestamp': timestamp, 'homeGF': homeGoals, 'awayGF': awayGoals});
+      } else if (_similarTeamNames(homeName, eventAway) && _similarTeamNames(awayName, eventHome)) {
+        rows.add(<String, dynamic>{'timestamp': timestamp, 'homeGF': awayGoals, 'awayGF': homeGoals});
+      }
+    }
+    rows.sort((a, b) =>
+        (_integer(b['timestamp']) ?? 0).compareTo(_integer(a['timestamp']) ?? 0));
+    final recent = rows.take(5).toList();
+    if (recent.isEmpty) return <String, dynamic>{'games': 0, 'homeGF': 0.0, 'awayGF': 0.0};
+    return <String, dynamic>{
+      'games': recent.length,
+      'homeGF': recent.fold<double>(0, (sum, item) => sum + (_integer(item['homeGF']) ?? 0)) / recent.length,
+      'awayGF': recent.fold<double>(0, (sum, item) => sum + (_integer(item['awayGF']) ?? 0)) / recent.length,
+    };
+  }
   Map<String, dynamic>? _parseForm(List<String> lines, String side) {
     final label = side == 'casa' ? 'Forma casa:' : 'Forma ospiti:';
     for (final line in lines) {
