@@ -1037,6 +1037,31 @@ jobs:
                       aw = score_value(event.get("awayScore"))
                       if hs is None or aw is None:
                           continue
+                      # SofaScore's completed events may expose first-half scores
+                      # through period1. Save them for the forecast grader when present.
+                      event_id = as_int(event.get("id"))
+                      event_ts = as_int(event.get("startTimestamp")) or 0
+                      event_home = event.get("homeTeam") or {}
+                      event_away = event.get("awayTeam") or {}
+                      home_score_obj = event.get("homeScore") or {}
+                      away_score_obj = event.get("awayScore") or {}
+                      ht_home = as_int(home_score_obj.get("period1")) if isinstance(home_score_obj, dict) else None
+                      ht_away = as_int(away_score_obj.get("period1")) if isinstance(away_score_obj, dict) else None
+                      if event_id is not None and event_ts and event_home.get("name") and event_away.get("name"):
+                          HISTORICAL_RESULTS["sofa:" + str(event_id)] = {
+                              "id": event_id,
+                              "home": str(event_home.get("name")),
+                              "away": str(event_away.get("name")),
+                              "league": str(((event.get("tournament") or {}).get("name")) or "Football"),
+                              "time": datetime.fromtimestamp(event_ts, TZ).strftime("%H:%M"),
+                              "timestamp": event_ts,
+                              "status": "FT",
+                              "scoreHome": hs,
+                              "scoreAway": aw,
+                              "scoreHTHome": ht_home,
+                              "scoreHTAway": ht_away,
+                              "sources": ["SofaScore historical results"],
+                          }
                       home_id = as_int((event.get("homeTeam") or {}).get("id"))
                       if home_id == team_id:
                           scored, conceded = hs, aw
