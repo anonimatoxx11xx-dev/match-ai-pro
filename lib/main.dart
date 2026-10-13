@@ -975,7 +975,7 @@ class _DetailState extends State<_Detail> {
 
     double? stat(String key)=>n(m.stats[key]);
     final hs=stat('homeShots');
-    final as=stat('awayShots');
+    final awayShotsValue=stat('awayShots');
     final hon=stat('homeOn');
     final aon=stat('awayOn');
     final homeScored=(hf['gf'] as int)/homeGames;
@@ -1051,7 +1051,7 @@ class _DetailState extends State<_Detail> {
       'pick':pick,'confidence':conf,
       'homeForm':hf['rate'],'awayForm':af['rate'],
       'h2hHome':hh,'h2hDraw':hd,'h2hAway':ha,
-      'homeShots':hs,'awayShots':as,'homeOn':hon,'awayOn':aon,
+      'homeShots':hs,'awayShots':awayShotsValue,'homeOn':hon,'awayOn':aon,
       'homeCorners':stat('homeCorners'),'awayCorners':stat('awayCorners'),
       'homeFouls':stat('homeFouls'),'awayFouls':stat('awayFouls'),
       'homeGoals':homeScored,'awayGoals':awayScored,
@@ -1066,7 +1066,7 @@ class _DetailState extends State<_Detail> {
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
     final out=<String,dynamic>{};
     var source='';
-    if(m.stats.isNotEmpty){ out.addAll(m.stats); source='Feed · medie ultime gare'; }
+    if(m.stats.isNotEmpty){ out.addAll(m.stats); source=m.status=='NS'?'Feed · medie ultime gare':'Feed · statistiche evento'; }
     const slugs=<String,String>{
       'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
       'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
@@ -1301,11 +1301,19 @@ class _DetailState extends State<_Detail> {
       const SizedBox(height:6),Wrap(spacing:6,runSpacing:6,children:[
         _projection('Tiri',aiContext['homeShots'],aiContext['awayShots']),_projection('Porta',aiContext['homeOn'],aiContext['awayOn']),_projection('Angoli',aiContext['homeCorners'],aiContext['awayCorners']),_projection('Falli',aiContext['homeFouls'],aiContext['awayFouls']),_projection('Gol medi',aiContext['homeGoals'],aiContext['awayGoals'])
       ]),
-      const SizedBox(height:7),const Text('Calcolo pre-match: forma recente + scontri diretti + indicatori offensivi. Le proiezioni sono stime, non risultati reali.',style:TextStyle(color:Color(0xFF626B7D),fontSize:8,height:1.35))
+      const SizedBox(height:7),Text((aiContext['model']??'Modello basato sui dati verificati').toString()+'. Le proiezioni statistiche vengono mostrate solo quando disponibili; non si sostituiscono i valori mancanti con stime arbitrarie.',style:const TextStyle(color:Color(0xFF626B7D),fontSize:8,height:1.35))
     ]));
   }
 
-  Widget _projection(String label,dynamic h,dynamic a)=>Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:7),decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(10)),child:Text(label+'  '+_statNumber(_number(h)??0)+' • '+_statNumber(_number(a)??0),style:const TextStyle(color:Color(0xFFE5E8EE),fontSize:8.5,fontWeight:FontWeight.w900)));
+  Widget _projection(String label,dynamic h,dynamic a){
+    final home=_number(h),away=_number(a);
+    return Container(
+      padding:const EdgeInsets.symmetric(horizontal:9,vertical:7),
+      decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(10),
+        border:Border.all(color:Colors.white10)),
+      child:Text(label+'  '+(home==null?'—':_statNumber(home))+' • '+(away==null?'—':_statNumber(away)),
+        style:const TextStyle(color:Color(0xFFE5E8EE),fontSize:8.5,fontWeight:FontWeight.w900)));
+  }
 
   Widget _h2hPanel()=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:const Color(0xD90F1422),borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0x24FFC857))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Row(children:[const Icon(Icons.history_rounded,color:Color(0xFFFFC857),size:17),const SizedBox(width:7),const Expanded(child:Text('SCONTRI DIRETTI',style:TextStyle(color:Color(0xFFFFC857),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.9))),Text(h2hResults.length.toString()+' precedenti',style:const TextStyle(color:Color(0xFF687184),fontSize:8,fontWeight:FontWeight.w800))]),
