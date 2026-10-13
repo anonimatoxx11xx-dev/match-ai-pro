@@ -503,15 +503,15 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       const SizedBox(height:10),
       GridView.count(crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
         crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:2.3,children:[
-          _predictionMetric('FINALI VERIFICATI',ftChecked.toString(),const Color(0xFF39D9FF)),
-          _predictionMetric('ESATTO FINALE',ftExact.toString()+' / '+ftChecked.toString(),const Color(0xFF42E89A)),
-          _predictionMetric('ESATTO 1° TEMPO',htExact.toString()+' / '+htChecked.toString(),const Color(0xFFA9A0FF)),
+          _predictionMetric('FINALI VERIFICATI',ftChecked==0?'IN ATTESA':ftChecked.toString(),const Color(0xFF39D9FF)),
+          _predictionMetric('ESATTO FINALE',ftChecked==0?'—':ftExact.toString()+' / '+ftChecked.toString(),const Color(0xFF42E89A)),
+          _predictionMetric('ESATTO 1° TEMPO',htChecked==0?'N/D':htExact.toString()+' / '+htChecked.toString(),const Color(0xFFA9A0FF)),
           _predictionMetric('ERRORI MEMORIZZATI',errors.toString(),const Color(0xFFFFC857)),
         ]),
       Padding(padding:const EdgeInsets.fromLTRB(3,7,3,0),child:Text(
-        'Esito 1X2 corretto: '+ftOutcome.toString()+' / '+ftChecked.toString()+
+        (ftChecked==0?'Esito 1X2: in attesa di risultati verificati.':'Esito 1X2 corretto: '+ftOutcome.toString()+' / '+ftChecked.toString())+
         ' · Squadre ricalibrate: '+scorePredictor.trainedTeams.toString()+
-        ' · Quota media gol 1° tempo appresa: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%',
+        (htChecked==0?' · Primo tempo: quota iniziale 45%, non ancora calibrata su risultati reali.':' · Quota media gol 1° tempo appresa su '+htChecked.toString()+' intervalli: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%'),
         style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4))),
       const SizedBox(height:14),
       SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[
@@ -608,7 +608,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         ]),
         const SizedBox(height:9),
         Text('Campione: casa '+(evidence['homeGames']??'—').toString()+
-          ' gare · ospite '+(evidence['awayGames']??'—').toString()+' gare',
+          ' gare · ospite '+(evidence['awayGames']??'—').toString()+' gare · H2H '+(evidence['h2hGames']??0).toString(),
           style:const TextStyle(color:Color(0xFF9299AD),fontSize:9,fontWeight:FontWeight.w800)),
         const SizedBox(height:5),
         Text('1X2 modello: 1 '+_forecastPercent(p['probHome'])+
@@ -697,7 +697,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         const SizedBox(height:6),
         const Text('La percentuale della previsione viene mostrata dentro ogni partita. Qui misuriamo qualità e copertura dei dati reali, senza trasformare le proiezioni in statistiche.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35)),
         const SizedBox(height:14),
-        _metric('Partite con statistiche reali',coverage),
+        _metric('Partite con dati statistici',coverage),
         _metric('Partite con analisi IA',aiCoverage),
         _metric('Feed aggiornato',freshness),
         const SizedBox(height:12),
@@ -709,7 +709,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           Expanded(child:_qualityBadge('FONTI',sourceCount,null,const Color(0xFFA9A0FF))),
         ]),
         const SizedBox(height:12),
-        Text(marketSignals.isNotEmpty?'I segnali di mercato sono separati dalle previsioni IA. L’IA usa forma recente, scontri diretti e indicatori statistici quando disponibili.':'L’IA combina forma recente, scontri diretti e indicatori offensivi quando i dati sono disponibili. I valori stimati sono marcati come proiezioni.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
+        Text(marketSignals.isNotEmpty?'I segnali di mercato sono separati dalle previsioni IA. Le statistiche pre-match sono medie storiche quando indicate come MEDIA; i dati mancanti restano N/D.':'L’IA combina forma recente, scontri diretti e indicatori offensivi quando i dati sono disponibili. I valori stimati sono marcati come proiezioni.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
       ])),
       _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
       if(strong.isNotEmpty) ..._leagueSections(strong, _card) else ..._leagueSections(signals.take(6).toList(), _card),
