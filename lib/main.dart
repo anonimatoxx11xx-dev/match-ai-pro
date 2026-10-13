@@ -82,6 +82,7 @@ class Match {
 
 class MatchService {
   bool lastFeedWasValid=false;
+  String feedStatus='UNKNOWN';
   static const _feedUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json';
   static const _calendarUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/calendar.json';
   static const _resultsUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/results.json';
@@ -122,6 +123,8 @@ class MatchService {
 
   Future<List<Match>> today() async {
     final errors=<String>[];
+    lastFeedWasValid=false;
+    feedStatus='UNKNOWN';
     final urls = <String>[
       '$_feedUrl?t=${DateTime.now().millisecondsSinceEpoch}',
       _sofaUrl(),
@@ -152,9 +155,13 @@ class MatchService {
         final matches = _parsePayload(decoded);
         if (decoded is Map && decoded['matches'] is List) {
           lastFeedWasValid = true;
+          feedStatus = (decoded['feedStatus'] ?? 'OK').toString().toUpperCase();
           return matches;
         }
-        if (matches.isNotEmpty) return matches;
+        if (matches.isNotEmpty) {
+          feedStatus = 'SOFASCORE_DIRECT';
+          return matches;
+        }
         errors.add('$url -> feed vuoto');
       } catch (e) {
         errors.add('$url -> ${e.runtimeType}');
@@ -478,6 +485,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final ftChecked=completed.length;
     final ftExact=completed.where((p)=>p['ftExact']==true).length;
     final ftOutcome=completed.where((p)=>p['ft1x2Correct']==true).length;
+    final brierRows=completed.where((p)=>p['brier1X2'] is num).toList();
+    final meanBrier=brierRows.isEmpty?null:brierRows.fold<double>(0.0,(sum,p)=>sum+(p['brier1X2'] as num).toDouble())/brierRows.length;
+    final meanGoalError=completed.where((p)=>p['goalError'] is num).toList();
+    final averageGoalError=meanGoalError.isEmpty?null:meanGoalError.fold<double>(0.0,(sum,p)=>sum+(p['goalError'] as num).toDouble())/meanGoalError.length;
     final htChecked=predictionRecords.where((p)=>p['gradedHT']==true).length;
     final htExact=predictionRecords.where((p)=>p['gradedHT']==true && p['htExact']==true).length;
     final errors=completed.where((p)=>p['ftExact']!=true).length;
@@ -507,10 +518,13 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           _predictionMetric('ESATTO FINALE',ftChecked==0?'—':ftExact.toString()+' / '+ftChecked.toString(),const Color(0xFF42E89A)),
           _predictionMetric('ESATTO 1° TEMPO',htChecked==0?'N/D':htExact.toString()+' / '+htChecked.toString(),const Color(0xFFA9A0FF)),
           _predictionMetric('ERRORI MEMORIZZATI',errors.toString(),const Color(0xFFFFC857)),
+          _predictionMetric('BRIER 1X2',meanBrier==null?'N/D':meanBrier.toStringAsFixed(3),const Color(0xFFFFC857)),
+          _predictionMetric('ERRORE MEDIO GOL',averageGoalError==null?'N/D':averageGoalError.toStringAsFixed(2),const Color(0xFF39D9FF)),
         ]),
       Padding(padding:const EdgeInsets.fromLTRB(3,7,3,0),child:Text(
         (ftChecked==0?'Esito 1X2: in attesa di risultati verificati.':'Esito 1X2 corretto: '+ftOutcome.toString()+' / '+ftChecked.toString())+
         ' · Squadre ricalibrate: '+scorePredictor.trainedTeams.toString()+
+        (meanBrier==null?' · Brier non disponibile finché non vengono verificati esiti con probabilità salvate.':' · Brier medio: '+meanBrier.toStringAsFixed(3)+' (più basso è meglio).')+
         (htChecked==0?' · Primo tempo: quota iniziale 45%, non ancora calibrata su risultati reali.':' · Quota media gol 1° tempo appresa su '+htChecked.toString()+' intervalli: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%'),
         style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4))),
       const SizedBox(height:14),
@@ -616,6 +630,36 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           ' · 2 '+_forecastPercent(p['probAway']),
           style:const TextStyle(color:Color(0xFFB7BED0),fontSize:9,fontWeight:FontWeight.w800)),
         const SizedBox(height:7),
+        Wrap(spacing:6,runSpacing:6,children:[
+          _marketChip('Over 1.5',p['probOver15']),
+          _marketChip('Over 2.5',p['probOver25']),
+          _marketChip('Under 3.5',p['probUnder35']),
+          _marketChip('Gol/Gol',p['probBTTSYes']),
+          _marketChip('No Gol/Gol',p['probBTTSNo']),
+        ]),
+        const SizedBox(height:7),
+        Builder(builder:(context){
+          final scores=(p['topScores'] as List? ?? const <dynamic>[]).whereType<Map>().toList();
+          if(scores.isEmpty)return const SizedBox.shrink();
+          return Container(width:double.infinity,padding:const EdgeInsets.all(10),
+            decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(12),border:Border.all(color:Colors.white10)),
+            child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+              const Text('RISULTATI ESATTI ALTERNATIVI',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.6)),
+              const SizedBox(height:6),
+              Wrap(spacing:7,runSpacing:6,children:scores.map((score){
+                final h=score['home']??'—',a=score['away']??'—';
+                return Container(padding:const EdgeInsets.symmetric(horizontal:8,vertical:6),
+                  decoration:BoxDecoration(color:const Color(0xFF171D2D),borderRadius:BorderRadius.circular(8)),
+                  child:Text('$h-$a  '+_forecastPercent(score['probability']),style:const TextStyle(color:Color(0xFFE2E5ED),fontSize:9,fontWeight:FontWeight.w800)));
+              }).toList()),
+            ]));
+        }),
+        const SizedBox(height:7),
+        Row(children:[
+          Expanded(child:Text('Qualità campione: '+(p['dataQuality']??'N/D').toString()+' · min '+(p['sampleMin']??'—').toString()+' gare per squadra',
+            style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,fontWeight:FontWeight.w800))),
+        ]),
+        const SizedBox(height:7),
         Text((p['basis']??'Modello basato sui risultati recenti').toString(),
           style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.35)),
         const SizedBox(height:5),
@@ -624,6 +668,14 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           style:const TextStyle(color:Color(0xFF626B7D),fontSize:8)),
       ]),
     );
+  }
+
+  Widget _marketChip(String label,dynamic value){
+    final n=value is num?value.toDouble():double.tryParse((value??'').toString());
+    return Container(padding:const EdgeInsets.symmetric(horizontal:8,vertical:6),
+      decoration:BoxDecoration(color:const Color(0xFF171D2D),borderRadius:BorderRadius.circular(9),border:Border.all(color:Colors.white10)),
+      child:Text(label+' '+(n==null?'N/D':n.toStringAsFixed(1)+'%'),
+        style:const TextStyle(color:Color(0xFFB7BED0),fontSize:8,fontWeight:FontWeight.w900)));
   }
 
   Widget _gradedForecastCard(Map<String,dynamic> p){
@@ -671,8 +723,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final withAi=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && !m.proposals.every((p)=>p.contains('(market signal)'))).length;
     final realStatValues=matches.fold<int>(0,(sum,m)=>sum+m.stats.length);
     final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
-    final age=updated==null?999:DateTime.now().difference(updated).inMinutes.abs();
-    final freshness=age<=15?1.0:(age<=60 ? .9 : .65);
+    final age=updated==null?999:DateTime.now().difference(updated).inMinutes;
+    final freshness=age<0?.65:(age<=15?1.0:(age<=60 ? .9 : .65));
     final sourceProviders=<String>{};
     void addSource(String source){
       final s=source.toLowerCase();
@@ -700,6 +752,20 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         _metric('Partite con dati statistici',coverage),
         _metric('Partite con analisi IA',aiCoverage),
         _metric('Feed aggiornato',freshness),
+        const SizedBox(height:7),
+        Container(width:double.infinity,padding:const EdgeInsets.all(10),
+          decoration:BoxDecoration(
+            color:service.feedStatus=='DEGRADED'?const Color(0x22FFC857):const Color(0x0D42E89A),
+            borderRadius:BorderRadius.circular(11),
+            border:Border.all(color:service.feedStatus=='DEGRADED'?const Color(0x55FFC857):const Color(0x2242E89A))),
+          child:Row(children:[
+            Icon(service.feedStatus=='DEGRADED'?Icons.warning_amber_rounded:Icons.verified_rounded,
+              size:16,color:service.feedStatus=='DEGRADED'?const Color(0xFFFFC857):const Color(0xFF42E89A)),
+            const SizedBox(width:7),
+            Expanded(child:Text('Stato feed: '+service.feedStatus+
+              (service.feedStatus=='DEGRADED'?' · copertura ridotta: interpreta con cautela':' · verifica comunque la fonte della singola partita'),
+              style:TextStyle(color:service.feedStatus=='DEGRADED'?const Color(0xFFFFD36B):const Color(0xFF8FDDB6),fontSize:9,fontWeight:FontWeight.w800))),
+          ])),
         const SizedBox(height:12),
         Row(children:[
           Expanded(child:_qualityBadge('STAT',withStats,total,Colors.cyan)),
