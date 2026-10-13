@@ -965,34 +965,102 @@ class _DetailState extends State<_Detail> {
     var hh=0,hd=0,ha=0;
     for(final e in h2h){if(e['winner']=='home')hh++;else if(e['winner']=='away')ha++;else hd++;}
     final total=h2h.length;
-    final hs=(m.stats['homeShots'] is num?(m.stats['homeShots'] as num).toDouble():10.0);
-    final as=(m.stats['awayShots'] is num?(m.stats['awayShots'] as num).toDouble():10.0);
-    final hon=(m.stats['homeOn'] is num?(m.stats['homeOn'] as num).toDouble():3.0);
-    final aon=(m.stats['awayOn'] is num?(m.stats['awayOn'] as num).toDouble():3.0);
-    final hg=(hf['games'] as int)==0?1.0:(hf['gf'] as int)/(hf['games'] as int);
-    final ag=(af['games'] as int)==0?1.0:(af['gf'] as int)/(af['games'] as int);
-    final formEdge=(hf['rate'] as double)-(af['rate'] as double);
-    final attackHome=((hon/6)*.45+(hg/3)*.35+(hs/18)*.20).clamp(0.0,1.0);
-    final attackAway=((aon/6)*.45+(ag/3)*.35+(as/18)*.20).clamp(0.0,1.0);
-    final h2hEdge=total==0?0.0:(hh-ha)/total;
-    var hp=.48+formEdge*.30+(attackHome-attackAway)*.25+h2hEdge*.12+.06;
-    var ap=.30-formEdge*.24-(attackHome-attackAway)*.18-h2hEdge*.08;
-    hp=hp.clamp(.10,.80); ap=ap.clamp(.10,.72);
-    var xp=.20+(1-(hp-ap).abs())*.09;
-    final sum=hp+ap+xp; final homeProb=(hp/sum*100).round(); final awayProb=(ap/sum*100).round(); final drawProb=100-homeProb-awayProb;
-    final pick=homeProb>=awayProb&&homeProb>=drawProb?m.home+' vincente':(awayProb>=homeProb&&awayProb>=drawProb?m.away+' vincente':'Pareggio');
-    final conf=homeProb>=awayProb&&homeProb>=drawProb?homeProb:(awayProb>=homeProb?awayProb:drawProb);
+    final homeGames=hf['games'] as int;
+    final awayGames=af['games'] as int;
+    if(homeGames<2||awayGames<2){
+      // No invented baseline: an AI winner card is hidden until both teams
+      // have a minimal verified recent-result sample.
+      return {'h2h':h2h,'aiContext':ai,'source':h2h.isEmpty?'':'SofaScore · H2H'};
+    }
+
+    double? stat(String key)=>n(m.stats[key]);
+    final hs=stat('homeShots');
+    final as=stat('awayShots');
+    final hon=stat('homeOn');
+    final aon=stat('awayOn');
+    final homeScored=(hf['gf'] as int)/homeGames;
+    final homeConceded=(hf['ga'] as int)/homeGames;
+    final awayScored=(af['gf'] as int)/awayGames;
+    final awayConceded=(af['ga'] as int)/awayGames;
+
+    // Count historic head-to-head outcomes from the perspective of these two
+    // current teams. The home/away orientation can be reversed in old matches.
+    String teamKey(String value)=>value.toLowerCase()
+      .replaceAll(RegExp(r'\b(football club|soccer club|fc|afc|cf|sc|club|the)\b'),' ')
+      .replaceAll(RegExp(r'[^a-z0-9]'),'');
+    bool sameTeam(String a,String b){
+      final left=teamKey(a),right=teamKey(b);
+      return left.isNotEmpty&&right.isNotEmpty&&
+        (left==right||(left.length>=5&&right.length>=5&&(left.contains(right)||right.contains(left))));
+    }
+    var hh=0,hd=0,ha=0;
+    var h2hHomeGoals=0,h2hAwayGoals=0,h2hUsed=0;
+    for(final e in h2h){
+      final eh=(e['home']??'').toString();
+      final ea=(e['away']??'').toString();
+      final sh=(e['hs'] as num?)?.toInt();
+      final sa=(e['as'] as num?)?.toInt();
+      if(sh==null||sa==null)continue;
+      int? homeGoals,awayGoals;
+      if(sameTeam(m.home,eh)&&sameTeam(m.away,ea)){
+        homeGoals=sh;awayGoals=sa;
+      }else if(sameTeam(m.home,ea)&&sameTeam(m.away,eh)){
+        homeGoals=sa;awayGoals=sh;
+      }else{continue;}
+      h2hUsed++;h2hHomeGoals+=homeGoals;h2hAwayGoals+=awayGoals;
+      if(homeGoals>awayGoals)hh++;else if(homeGoals<awayGoals)ha++;else hd++;
+    }
+
+    var homeLambda=((homeScored*.58+awayConceded*.42)*1.06).clamp(.10,4.0).toDouble();
+    var awayLambda=((awayScored*.58+homeConceded*.42)*.94).clamp(.10,4.0).toDouble();
+    // H2H has a small, capped influence; recent goal form remains dominant.
+    if(h2hUsed>=3){
+      final oldHomeGoals=h2hHomeGoals/h2hUsed;
+      final oldAwayGoals=h2hAwayGoals/h2hUsed;
+      homeLambda=(homeLambda*.88+oldHomeGoals*.12).clamp(.10,4.0).toDouble();
+      awayLambda=(awayLambda*.88+oldAwayGoals*.12).clamp(.10,4.0).toDouble();
+    }
+
+    List<double> poisson(double lambda,int max){
+      final values=<double>[math.exp(-lambda)];
+      for(var goals=1;goals<=max;goals++){
+        values.add(values[goals-1]*lambda/goals);
+      }
+      return values;
+    }
+    final homeDist=poisson(homeLambda,8);
+    final awayDist=poisson(awayLambda,8);
+    var homeP=0.0,drawP=0.0,awayP=0.0;
+    for(var h=0;h<homeDist.length;h++){
+      for(var a=0;a<awayDist.length;a++){
+        final probability=homeDist[h]*awayDist[a];
+        if(h>a)homeP+=probability;else if(h==a)drawP+=probability;else awayP+=probability;
+      }
+    }
+    final totalP=homeP+drawP+awayP;
+    if(totalP<=0)return {'h2h':h2h,'aiContext':ai,'source':''};
+    final homeProb=(homeP/totalP*100).round();
+    final drawProb=(drawP/totalP*100).round();
+    final awayProb=100-homeProb-drawProb;
+    final pick=homeProb>=awayProb&&homeProb>=drawProb?m.home+' vincente':
+      (awayProb>=homeProb&&awayProb>=drawProb?m.away+' vincente':'Pareggio');
+    final conf=math.max(homeProb,math.max(drawProb,awayProb));
+
     ai.addAll({
-      'homeProb':homeProb,'drawProb':drawProb,'awayProb':awayProb,'pick':pick,'confidence':conf,
-      'homeForm':hf['rate'],'awayForm':af['rate'],'h2hHome':hh,'h2hDraw':hd,'h2hAway':ha,
+      'homeProb':homeProb,'drawProb':drawProb,'awayProb':awayProb,
+      'pick':pick,'confidence':conf,
+      'homeForm':hf['rate'],'awayForm':af['rate'],
+      'h2hHome':hh,'h2hDraw':hd,'h2hAway':ha,
       'homeShots':hs,'awayShots':as,'homeOn':hon,'awayOn':aon,
-      'homeCorners':m.stats['homeCorners']??(hs*.32).clamp(2.0,8.0),
-      'awayCorners':m.stats['awayCorners']??(as*.32).clamp(2.0,8.0),
-      'homeFouls':m.stats['homeFouls']??12.0,'awayFouls':m.stats['awayFouls']??12.0,'homeGoals':hg,'awayGoals':ag,
+      'homeCorners':stat('homeCorners'),'awayCorners':stat('awayCorners'),
+      'homeFouls':stat('homeFouls'),'awayFouls':stat('awayFouls'),
+      'homeGoals':homeScored,'awayGoals':awayScored,
       'homeRecent':hf,'awayRecent':af,
-      'sampleHome':hf['games'],'sampleAway':af['games'],'sampleH2H':total
+      'sampleHome':homeGames,'sampleAway':awayGames,'sampleH2H':h2hUsed,
+      'expectedHomeGoals':homeLambda,'expectedAwayGoals':awayLambda,
+      'model':'Poisson · gol recenti fatti/subiti'+(h2hUsed>=3?' + H2H attenuato':''),
     });
-    return {'h2h':h2h,'aiContext':ai,'source':h2h.isEmpty?'':'SofaScore · H2H + forma ultime 6'};
+    return {'h2h':h2h,'aiContext':ai,'source':'SofaScore · forma ultime 6'+(h2hUsed>0?' + H2H':'')};
   }
 
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
