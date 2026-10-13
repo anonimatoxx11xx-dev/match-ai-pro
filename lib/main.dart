@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -876,6 +877,7 @@ class _DetailState extends State<_Detail> {
   List<Map<String,dynamic>> h2hResults=[];
   String statsSource='';
   String statsStatus='';
+  String statCategory='TUTTO';
 
   @override
   void initState() {
@@ -1248,28 +1250,160 @@ class _DetailState extends State<_Detail> {
 
 
   List<Widget> _statGrid(Map<String,dynamic> s,{required bool preMatch}){
-    final defs=<String,List<String>>{'TIRI':['homeShots','awayShots'],'TIRI IN PORTA':['homeOn','awayOn'],'ANGOLI':['homeCorners','awayCorners'],'FALLI':['homeFouls','awayFouls'],'RIMESSE LATERALI':['homeThrow','awayThrow'],'PARATE':['homeSaves','awaySaves'],'CARTELLINI GIALLI':['homeYellow','awayYellow'],'CARTELLINI ROSSI':['homeRed','awayRed'],'FUORIGIOCO':['homeOffsides','awayOffsides'],'TIRI BLOCCATI':['homeBlocked','awayBlocked'],'CONTRASTI':['homeTackles','awayTackles'],'SPAZZATE':['homeClearances','awayClearances'],'POSSESSO':['homePossession','awayPossession']};
-    return [GridView.count(
-      crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.18,
-      children:defs.entries.map((e){
-        final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
-        final missingCount=(rawH==null?1:0)+(rawA==null?1:0);
-        final hv=rawH, av=rawA;
-        final total=(hv??0)+(av??0);
-        final isPossession=e.key=='POSSESSO';
-        final hp=isPossession?((hv??0)/100):(total<=0 ? .5 : (hv??0)/total);
-        final ap=isPossession?((av??0)/100):(total<=0 ? .5 : (av??0)/total);
-        final accent=e.key=='POSSESSO'?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
-        final suffix=e.key=='POSSESSO'?'%':'';
-        return Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(children:[
-          Row(children:[Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF778094),fontSize:7.5,fontWeight:FontWeight.w900))),if(preMatch&&missingCount==0)const Text('MEDIA',style:TextStyle(color:Color(0xFF39D9FF),fontSize:7,fontWeight:FontWeight.w900)),if(missingCount==1)const Text('PARZIALE',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),if(missingCount==2)const Text('DATI N/D',style:TextStyle(color:Color(0xFFFFC857),fontSize:7,fontWeight:FontWeight.w900)),Icon(Icons.show_chart_rounded,size:11,color:accent)]),
-          const Spacer(),Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(hv==null?'—':_statNumber(hv)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:hv==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))])),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(av==null?'—':_statNumber(av)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:av==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900))]))]),
-          const SizedBox(height:8),Row(children:[Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?hp.clamp(0.0,1.0):hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),const SizedBox(width:4),Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?ap.clamp(0.0,1.0):ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8))))))])
-        ]));
-      }).toList()
-    )];
+    final defs=<String,List<String>>{
+      'TIRI':['homeShots','awayShots'],
+      'TIRI IN PORTA':['homeOn','awayOn'],
+      'ANGOLI':['homeCorners','awayCorners'],
+      'FALLI':['homeFouls','awayFouls'],
+      'RIMESSE LATERALI':['homeThrow','awayThrow'],
+      'PARATE':['homeSaves','awaySaves'],
+      'CARTELLINI GIALLI':['homeYellow','awayYellow'],
+      'CARTELLINI ROSSI':['homeRed','awayRed'],
+      'FUORIGIOCO':['homeOffsides','awayOffsides'],
+      'TIRI BLOCCATI':['homeBlocked','awayBlocked'],
+      'CONTRASTI':['homeTackles','awayTackles'],
+      'SPAZZATE':['homeClearances','awayClearances'],
+      'POSSESSO':['homePossession','awayPossession']
+    };
+    const categoryByStat=<String,String>{
+      'TIRI':'ATTACCO','TIRI IN PORTA':'ATTACCO','TIRI BLOCCATI':'ATTACCO',
+      'ANGOLI':'CREAZIONE','POSSESSO':'CREAZIONE',
+      'PARATE':'DIFESA','CONTRASTI':'DIFESA','SPAZZATE':'DIFESA','FUORIGIOCO':'DIFESA',
+      'FALLI':'DISCIPLINA','RIMESSE LATERALI':'DISCIPLINA',
+      'CARTELLINI GIALLI':'DISCIPLINA','CARTELLINI ROSSI':'DISCIPLINA'
+    };
+    final categories=<String>['TUTTO','ATTACCO','CREAZIONE','DIFESA','DISCIPLINA'];
+    final visibleDefs=defs.entries.where((e)=>statCategory=='TUTTO'||categoryByStat[e.key]==statCategory).toList();
+    return [Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[
+        for(final category in categories)
+          Padding(padding:const EdgeInsets.only(right:6,bottom:9),child:ChoiceChip(
+            label:Text(category,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w900)),
+            selected:statCategory==category,
+            showCheckmark:false,
+            selectedColor:const Color(0xFF282343),
+            backgroundColor:const Color(0xFF101522),
+            side:BorderSide(color:statCategory==category?const Color(0xFFA9A0FF):Colors.white10),
+            labelStyle:TextStyle(color:statCategory==category?const Color(0xFFC6BDFF):const Color(0xFF80889A)),
+            onSelected:(_)=>setState(()=>statCategory=category),
+          )),
+      ])),
+      GridView.count(
+        crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
+        crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.12,
+        children:visibleDefs.map((e){
+          final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
+          final missingCount=(rawH==null?1:0)+(rawA==null?1:0);
+          final hv=rawH,av=rawA;
+          final total=(hv??0)+(av??0);
+          final isPossession=e.key=='POSSESSO';
+          final hp=isPossession?((hv??0)/100):(total<=0?.5:(hv??0)/total);
+          final ap=isPossession?((av??0)/100):(total<=0?.5:(av??0)/total);
+          final accent=isPossession?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
+          final suffix=isPossession?'%':'';
+          final label=preMatch?'MEDIA STORICA':'DATO PARTITA';
+          return Material(color:Colors.transparent,child:InkWell(
+            borderRadius:BorderRadius.circular(18),
+            onTap:()=>_showStatInsight(e.key,hv,av,preMatch,isPossession),
+            child:Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),
+              decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),
+              child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+                Row(children:[
+                  Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF8992A6),fontSize:7.5,fontWeight:FontWeight.w900))),
+                  if(missingCount==0)Text(preMatch?'MEDIA':'REALE',style:TextStyle(color:preMatch?const Color(0xFF39D9FF):const Color(0xFF42E89A),fontSize:6.5,fontWeight:FontWeight.w900)),
+                  if(missingCount==1)const Text('PARZIALE',style:TextStyle(color:Color(0xFFFFC857),fontSize:6.5,fontWeight:FontWeight.w900)),
+                  if(missingCount==2)const Text('DATI N/D',style:TextStyle(color:Color(0xFFFFC857),fontSize:6.5,fontWeight:FontWeight.w900)),
+                  const SizedBox(width:3),Icon(Icons.open_in_full_rounded,size:9,color:accent),
+                ]),
+                const Spacer(),
+                Row(children:[
+                  Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                    Text(hv==null?'—':_statNumber(hv)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:hv==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),
+                    const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900)),
+                  ])),
+                  Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[
+                    Text(av==null?'—':_statNumber(av)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:av==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),
+                    const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900)),
+                  ])),
+                ]),
+                const SizedBox(height:8),
+                Row(children:[
+                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?hp.clamp(0.0,1.0):hp.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),
+                  const SizedBox(width:4),
+                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:isPossession?ap.clamp(0.0,1.0):ap.clamp(.05,.95),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8)))))),
+                ]),
+                const SizedBox(height:3),
+                const Text('TOCCA PER DETTAGLI',textAlign:TextAlign.right,style:TextStyle(color:Color(0xFF4F586B),fontSize:5.5,fontWeight:FontWeight.w900)),
+              ]),
+            ),
+          ));
+        }).toList()
+      ),
+      Padding(padding:const EdgeInsets.only(top:7,bottom:3),child:Text(
+        'Mostrate: '+visibleDefs.length.toString()+' categorie · '+label,
+        style:const TextStyle(color:Color(0xFF5F687A),fontSize:8))),
+    ])];
   }
 
+  void _showStatInsight(String name,double? home,double? away,bool preMatch,bool possession){
+    const definitions=<String,String>{
+      'TIRI':'Numero di conclusioni tentate. È un indicatore di volume offensivo, non misura da solo la qualità delle occasioni.',
+      'TIRI IN PORTA':'Conclusioni indirizzate nello specchio. È uno degli indicatori più utili per valutare la produzione offensiva.',
+      'ANGOLI':'Calci d’angolo ottenuti. Il dato può non essere pubblicato da alcune fonti o competizioni.',
+      'FALLI':'Falli commessi. Valori elevati possono indicare pressione o difficoltà nel contenere l’avversario.',
+      'RIMESSE LATERALI':'Rimesse laterali. Non tutte le fonti forniscono questo indicatore in modo coerente.',
+      'PARATE':'Interventi del portiere registrati dalla fonte.',
+      'CARTELLINI GIALLI':'Ammonizioni registrate; una media frazionaria indica la media di più incontri.',
+      'CARTELLINI ROSSI':'Espulsioni registrate; una media frazionaria indica la media di più incontri.',
+      'FUORIGIOCO':'Posizioni di fuorigioco fischiate.',
+      'TIRI BLOCCATI':'Conclusioni bloccate dai difensori.',
+      'CONTRASTI':'Contrasti registrati dalla fonte statistica; definizioni e copertura variano tra provider.',
+      'SPAZZATE':'Interventi difensivi di allontanamento del pallone.',
+      'POSSESSO':'Percentuale di possesso. Nelle statistiche pre-partita le due percentuali sono medie di partite diverse e non devono necessariamente sommare al 100%.',
+    };
+    final diff=home!=null&&away!=null?home-away:null;
+    final formattedDiff=diff==null?'Differenza non calcolabile':(possession?'Differenza media: '+(diff>0?'+':'')+diff.toStringAsFixed(1)+' punti percentuali':'Differenza media: '+(diff>0?'+':'')+_statNumber(diff.abs()));
+    showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,backgroundColor:const Color(0xFF090D17),
+      shape:const RoundedRectangleBorder(borderRadius:BorderRadius.vertical(top:Radius.circular(24))),
+      builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,12,20,24),child:Column(
+        mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Center(child:Container(width:42,height:4,decoration:BoxDecoration(color:Colors.white24,borderRadius:BorderRadius.circular(4)))),
+          const SizedBox(height:17),
+          Row(children:[
+            const Icon(Icons.insights_rounded,color:Color(0xFF9D91FF),size:24),
+            const SizedBox(width:9),
+            Expanded(child:Text(name,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))),
+            Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:preMatch?const Color(0x1839D9FF):const Color(0x1842E89A),borderRadius:BorderRadius.circular(9)),child:Text(preMatch?'MEDIA STORICA':'DATO PARTITA',style:TextStyle(color:preMatch?const Color(0xFF39D9FF):const Color(0xFF42E89A),fontSize:8,fontWeight:FontWeight.w900))),
+          ]),
+          const SizedBox(height:14),
+          Row(children:[
+            Expanded(child:_scoreBox(widget.m.home,home==null?null:home.round())),
+            const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF687184),fontWeight:FontWeight.w900))),
+            Expanded(child:_scoreBox(widget.m.away,away==null?null:away.round())),
+          ]),
+          const SizedBox(height:8),
+          Text(home==null||away==null?'Uno o entrambi i valori non sono disponibili nella fonte.':formattedDiff,
+            style:const TextStyle(color:Color(0xFFB6BDD0),fontSize:11,fontWeight:FontWeight.w800)),
+          const SizedBox(height:10),
+          Text(definitions[name]??'Indicatore statistico fornito dalla fonte corrente.',
+            style:const TextStyle(color:Color(0xFF8D95A8),fontSize:11,height:1.45)),
+          const SizedBox(height:12),
+          Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(13)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(preMatch?'CAMPIONE STORICO':'STATO DATI',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900)),
+            const SizedBox(height:5),
+            Text(preMatch?'Questi valori sono medie pre-partita delle gare disponibili, non statistiche della partita futura.':'Questi valori si riferiscono alla partita soltanto se la fonte li ha già pubblicati.',
+              style:const TextStyle(color:Color(0xFF828B9F),fontSize:10,height:1.35)),
+            const SizedBox(height:5),
+            Text('Fonte: '+(statsSource.isEmpty?'non indicata dal provider':statsSource),
+              style:const TextStyle(color:Color(0xFF626B7D),fontSize:8)),
+          ])),
+          const SizedBox(height:8),
+          Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:()=>Navigator.of(context).pop(),icon:const Icon(Icons.check_rounded,size:16),label:const Text('CHIUDI'))),
+        ],
+      ))),
+    );
+  }
   double? _number(dynamic value){
     if(value==null)return null;
     if(value is num)return value.toDouble();
