@@ -723,8 +723,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final withAi=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && !m.proposals.every((p)=>p.contains('(market signal)'))).length;
     final realStatValues=matches.fold<int>(0,(sum,m)=>sum+m.stats.length);
     final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
-    final age=updated==null?999:DateTime.now().difference(updated).inMinutes;
-    final freshness=age<0?.65:(age<=15?1.0:(age<=60 ? .9 : .65));
+    final age = updated == null ? 999 : DateTime.now().difference(updated).inMinutes;
+    final freshness = age < 0 ? 0.65 : (age <= 15 ? 1.0 : (age <= 60 ? 0.9 : 0.65));
     final sourceProviders=<String>{};
     void addSource(String source){
       final s=source.toLowerCase();
