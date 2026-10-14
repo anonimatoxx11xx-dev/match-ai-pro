@@ -482,9 +482,22 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   ]);
 
   Widget _predictionsView(){
-    final upcoming=predictionRecords.where((p)=>p['gradedFT']!=true && p['status']=='NS').toList()
+    // Only show active forecasts whose fixture is present in the currently
+    // fetched feed. The learner intentionally retains old records for grading,
+    // but those records must never reappear as today's upcoming predictions.
+    final activeIds=matches.map((m)=>m.id).where((id)=>id>0).toSet();
+    final nowSeconds=DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final upcoming=predictionRecords.where((p){
+      final id=(p['id'] as num?)?.toInt() ?? 0;
+      final kickoff=(p['timestamp'] as num?)?.toInt() ?? 0;
+      return p['gradedFT']!=true && p['status']=='NS' &&
+        activeIds.contains(id) && kickoff >= nowSeconds - 30 * 60;
+    }).toList()
       ..sort((a,b)=>(a['timestamp'] as num? ?? 0).compareTo(b['timestamp'] as num? ?? 0));
-    final live=predictionRecords.where((p)=>p['gradedFT']!=true && p['status']=='LIVE').toList();
+    final live=predictionRecords.where((p){
+      final id=(p['id'] as num?)?.toInt() ?? 0;
+      return p['gradedFT']!=true && p['status']=='LIVE' && activeIds.contains(id);
+    }).toList();
     final completed=predictionRecords.where((p)=>p['gradedFT']==true).toList()
       ..sort((a,b)=>(b['timestamp'] as num? ?? 0).compareTo(a['timestamp'] as num? ?? 0));
     final showUpcoming=predictionFilter=='PROSSIME'||predictionFilter=='TUTTE';
@@ -535,6 +548,17 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         (meanBrier==null?' · Brier non disponibile finché non vengono verificati esiti con probabilità salvate.':' · Brier medio: '+meanBrier.toStringAsFixed(3)+' (più basso è meglio).')+
         (htChecked==0?' · Primo tempo: quota iniziale 45%, non ancora calibrata su risultati reali.':' · Quota media gol 1° tempo appresa su '+htChecked.toString()+' intervalli: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%'),
         style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4))),
+      if(service.feedStatus=='DEGRADED')Padding(
+        padding:const EdgeInsets.only(top:10),
+        child:Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(
+          color:const Color(0x22FFC857),borderRadius:BorderRadius.circular(14),
+          border:Border.all(color:const Color(0x66FFC857))),
+          child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Icon(Icons.warning_amber_rounded,color:Color(0xFFFFC857),size:18),
+            SizedBox(width:8),
+            Expanded(child:Text('FEED DEGRADATO: le fonti principali non hanno confermato tutti gli eventi. I pronostici sono stime provvisorie, non verifiche dei risultati. Non usare questi dati come conferma di una partita o come garanzia.',
+              style:TextStyle(color:Color(0xFFFFD985),fontSize:10,height:1.4,fontWeight:FontWeight.w700))),
+          ]))),
       const SizedBox(height:14),
       SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[
         for(final filter in <String>['PROSSIME','LIVE','VERIFICATE','TUTTE'])
@@ -667,6 +691,14 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           Expanded(child:Text('Qualità campione: '+(p['dataQuality']??'N/D').toString()+' · min '+(p['sampleMin']??'—').toString()+' gare per squadra',
             style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,fontWeight:FontWeight.w800))),
         ]),
+        if(service.feedStatus=='DEGRADED')Padding(
+          padding:const EdgeInsets.only(bottom:6),
+          child:Row(children:[
+            const Icon(Icons.warning_amber_rounded,color:Color(0xFFFFC857),size:12),
+            const SizedBox(width:4),
+            const Expanded(child:Text('FONTE DEGRADATA · PREVISIONE NON CONFERMATA',
+              style:TextStyle(color:Color(0xFFFFC857),fontSize:7.5,fontWeight:FontWeight.w900))),
+          ])),
         const SizedBox(height:7),
         Text((p['basis']??'Modello basato sui risultati recenti').toString(),
           style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.35)),
