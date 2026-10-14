@@ -325,7 +325,7 @@ jobs:
               today = NOW.date()
               events_by_team = {}
               supported_slugs = {
-                  "eng.1","eng.2","eng.3","eng.4","eng.5","esp.1","esp.2",
+                  "all","eng.1","eng.2","eng.3","eng.4","eng.5","esp.1","esp.2",
                   "ita.1","ita.2","ger.1","ger.2","fra.1","fra.2","ned.1","tur.1",
                   "uefa.champions","uefa.europa","uefa.europa.conf"
               }
@@ -1198,7 +1198,12 @@ jobs:
                       for row in rows_for(team_name):
                           slug = str(row.get("leagueSlug") or "").strip().lower()
                           event_id = as_int(row.get("eventId"))
-                          if slug in supported_slugs and event_id:
+                          # Broad ESPN historical scoreboards sometimes omit a competition
+                          # slug. Their event ID is still from the /soccer/all scoreboard,
+                          # so try the generic summary route, then verify both team names.
+                          if slug not in supported_slugs:
+                              slug = "all"
+                          if event_id:
                               refs[(slug, event_id)] = row
 
               if not refs:
