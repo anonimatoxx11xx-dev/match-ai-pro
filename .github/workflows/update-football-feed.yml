@@ -36,6 +36,7 @@ jobs:
           import json
           import os
           import re
+          from urllib.parse import quote
           from curl_cffi import requests
           from concurrent.futures import ThreadPoolExecutor, as_completed
           from datetime import datetime, timedelta
@@ -1082,7 +1083,6 @@ jobs:
                       return None
                   games = 0
                   gf = ga = btts = over15 = over25 = 0
-                  stat_events = []
                   for event in data.get("events") or []:
                       live, finished = state(event)
                       if not finished:
@@ -1097,7 +1097,11 @@ jobs:
                       event_away = event.get("awayTeam") or {}
                       home_id = as_int(event_home.get("id"))
                       away_id = as_int(event_away.get("id"))
-                      # Do not guess "away" when the requested team is absent.
+                      sport = ((event.get("tournament") or {}).get("category") or {}).get("sport") or event.get("sport") or {}
+                      sport_slug = str(sport.get("slug") or "").lower() if isinstance(sport,dict) else ""
+                      sport_name = str(sport.get("name") or "").lower() if isinstance(sport,dict) else ""
+                      if sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
+                          continue
                       if team_id not in {home_id, away_id}:
                           continue
                       home_score_obj = event.get("homeScore") or {}
@@ -1119,12 +1123,6 @@ jobs:
                               "scoreHTAway": ht_away,
                               "sources": ["SofaScore historical results"],
                           }
-                          stat_events.append({
-                              "eventId": event_id,
-                              "timestamp": event_ts,
-                              "homeTeamId": home_id,
-                              "awayTeamId": away_id,
-                          })
                       scored, conceded = (hs, aw) if home_id == team_id else (aw, hs)
                       gf += scored
                       ga += conceded
@@ -1142,7 +1140,6 @@ jobs:
                       "btts": btts / games,
                       "over15": over15 / games,
                       "over25": over25 / games,
-                      "statEvents": stat_events,
                   }
               except Exception:
                   return None
@@ -1385,53 +1382,142 @@ jobs:
 
               print("ESPN detailed pre-match averages (verified teams + competition):", added, "matches")
 
-          def enrich_with_sofascore_stat_averages(records, team_recent_cache):
-              """Pre-match averages from finished SofaScore events for the exact SofaScore team IDs."""
-              upcoming = [x for x in records if x.get("status") == "NS"][:25]
+          def enrich_with_sofascore_stat_averages(records):
+              """Average real stats from completed SofaScore events matched to verified football teams."""
+              upcoming = [x for x in records if x.get("status") == "NS"][:15]
               if not upcoming:
                   return
 
-              # A SofaScore ID is accepted only if its own recent-event endpoint
-              # returns finished events whose home/away team IDs include that ID.
-              teams = {}
+              def find_sofa_team_id(team_name):
+                  target = normalize_team_name(team_name)
+                  if not target:
+                      return None
+                  candidates = set()
+                  for host in ("https://www.sofascore.com", "https://api.sofascore.app"):
+                      try:
+                          payload = get_json(
+                              host + "/api/v1/search/all?q=" + quote(str(team_name)),
+                              12,
+                          )
+                          for result in payload.get("results") or []:
+                              if not isinstance(result, dict):
+                                  continue
+                              entity = result.get("entity") or {}
+                              if not isinstance(entity, dict) or not entity.get("id"):
+                                  continue
+                              entity_type = str(entity.get("type") or result.get("type") or "").lower()
+                              sport = entity.get("sport") or result.get("sport") or {}
+                              if not isinstance(sport, dict):
+                                  sport = {}
+                              sport_slug = str(sport.get("slug") or "").lower()
+                              sport_name = str(sport.get("name") or "").lower()
+                              if sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
+                                  continue
+                              if entity_type and entity_type not in {"team","participant"}:
+                                  continue
+                              if normalize_team_name(entity.get("name")) == target:
+                                  candidates.add(as_int(entity.get("id")))
+                          if candidates:
+                              break
+                      except Exception:
+                          continue
+                  candidates.discard(None)
+                  return next(iter(candidates)) if len(candidates) == 1 else None
+
+              names = sorted({
+                  str(item.get(side) or "").strip()
+                  for item in upcoming for side in ("home","away")
+                  if str(item.get(side) or "").strip()
+              })
+              team_ids = {}
+              with ThreadPoolExecutor(max_workers=10) as pool:
+                  futures = {pool.submit(find_sofa_team_id, name):name for name in names}
+                  for future in as_completed(futures):
+                      name = futures[future]
+                      try:
+                          found = future.result()
+                      except Exception:
+                          found = None
+                      if found:
+                          team_ids[name] = found
+
+              team_kickoffs = {}
               for item in upcoming:
-                  kick_off = as_int(item.get("timestamp")) or 0
-                  for side in ("home", "away"):
-                      team_id = as_int(item.get(side + "TeamId"))
-                      if not team_id:
-                          continue
-                      entry = teams.setdefault(team_id, {"kickoffs": [], "name": str(item.get(side) or "")})
-                      if kick_off:
-                          entry["kickoffs"].append(kick_off)
+                  cutoff = as_int(item.get("timestamp")) or 0
+                  for side in ("home","away"):
+                      name = str(item.get(side) or "").strip()
+                      team_id = team_ids.get(name)
+                      if team_id:
+                          values = team_kickoffs.setdefault(team_id, [])
+                          if cutoff:
+                              values.append(cutoff)
 
-              team_events = {}
-              all_event_ids = set()
-              for team_id, meta in teams.items():
-                  recent_data = team_recent_cache.get(team_id)
-                  event_rows = (recent_data or {}).get("statEvents") or []
-                  cutoff = min(meta["kickoffs"]) if meta["kickoffs"] else 0
-                  valid = []
-                  for event in event_rows:
-                      event_id = as_int(event.get("eventId"))
-                      timestamp = as_int(event.get("timestamp")) or 0
-                      home_id = as_int(event.get("homeTeamId"))
-                      away_id = as_int(event.get("awayTeamId"))
-                      if not event_id or team_id not in {home_id, away_id}:
+              def recent_finished_events(team_id, cutoff):
+                  for host in ("https://api.sofascore.app", "https://www.sofascore.com"):
+                      try:
+                          payload = get_json(
+                              host + "/api/v1/team/" + str(team_id) + "/events/last/0",
+                              15,
+                          )
+                          rows = []
+                          for event in payload.get("events") or []:
+                              if not isinstance(event, dict):
+                                  continue
+                              live, finished = state(event)
+                              if not finished:
+                                  continue
+                              event_id = as_int(event.get("id"))
+                              timestamp = as_int(event.get("startTimestamp")) or 0
+                              home = event.get("homeTeam") or {}
+                              away = event.get("awayTeam") or {}
+                              home_id = as_int(home.get("id"))
+                              away_id = as_int(away.get("id"))
+                              sport = ((event.get("tournament") or {}).get("category") or {}).get("sport") or event.get("sport") or {}
+                              sport_slug = str(sport.get("slug") or "").lower() if isinstance(sport,dict) else ""
+                              sport_name = str(sport.get("name") or "").lower() if isinstance(sport,dict) else ""
+                              if sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
+                                  continue
+                              if not event_id or team_id not in {home_id,away_id}:
+                                  continue
+                              if cutoff and timestamp >= cutoff:
+                                  continue
+                              rows.append({
+                                  "eventId":event_id,
+                                  "timestamp":timestamp,
+                                  "homeTeamId":home_id,
+                                  "awayTeamId":away_id,
+                              })
+                          rows.sort(key=lambda x:x.get("timestamp") or 0, reverse=True)
+                          return rows[:3]
+                      except Exception:
                           continue
-                      if cutoff and timestamp >= cutoff:
-                          continue
-                      valid.append(event)
-                  valid.sort(key=lambda x: x.get("timestamp") or 0, reverse=True)
-                  team_events[team_id] = valid[:3]
-                  all_event_ids.update(as_int(e.get("eventId")) for e in valid[:3] if as_int(e.get("eventId")))
+                  return []
 
-              if not all_event_ids:
-                  print("SofaScore historical stats: no matched team event IDs")
+              recent_cache = {}
+              with ThreadPoolExecutor(max_workers=10) as pool:
+                  futures = {
+                      pool.submit(recent_finished_events, team_id, min(cutoffs) if cutoffs else 0):team_id
+                      for team_id,cutoffs in team_kickoffs.items()
+                  }
+                  for future in as_completed(futures):
+                      team_id = futures[future]
+                      try:
+                          recent_cache[team_id] = future.result()
+                      except Exception:
+                          recent_cache[team_id] = []
+
+              event_ids = {
+                  as_int(event.get("eventId"))
+                  for rows in recent_cache.values() for event in rows
+                  if as_int(event.get("eventId"))
+              }
+              if not event_ids:
+                  print("SofaScore stats: no recent completed events matched verified football team IDs")
                   return
 
               event_stats = {}
               with ThreadPoolExecutor(max_workers=12) as pool:
-                  futures = {pool.submit(match_stats, event_id):event_id for event_id in all_event_ids}
+                  futures = {pool.submit(match_stats, event_id):event_id for event_id in event_ids}
                   for future in as_completed(futures):
                       event_id = futures[future]
                       try:
@@ -1439,91 +1525,82 @@ jobs:
                       except Exception:
                           event_stats[event_id] = {}
 
-              metrics = {
-                  "shots":("Shots",0,45),
-                  "on":("On",0,30),
-                  "corners":("Corners",0,25),
-                  "fouls":("Fouls",0,50),
-                  "throw":("Throw",0,80),
-                  "saves":("Saves",0,25),
-                  "yellow":("Yellow",0,12),
-                  "red":("Red",0,5),
-                  "offsides":("Offsides",0,20),
-                  "blocked":("Blocked",0,25),
-                  "tackles":("Tackles",0,80),
-                  "clearances":("Clearances",0,100),
-                  "possession":("Possession",0,100),
+              bounds = {
+                  "shots":(0,45),"on":(0,30),"corners":(0,25),"fouls":(0,50),
+                  "throw":(0,80),"saves":(0,25),"yellow":(0,12),"red":(0,5),
+                  "offsides":(0,20),"blocked":(0,25),"tackles":(0,80),
+                  "clearances":(0,100),"possession":(0,100),
+              }
+              fields = {
+                  "shots":"Shots","on":"On","corners":"Corners","fouls":"Fouls",
+                  "throw":"Throw","saves":"Saves","yellow":"Yellow","red":"Red",
+                  "offsides":"Offsides","blocked":"Blocked","tackles":"Tackles",
+                  "clearances":"Clearances","possession":"Possession",
               }
               team_avgs = {}
               team_counts = {}
-              for team_id, events in team_events.items():
-                  observations = {key:[] for key in metrics}
+              for team_id,events in recent_cache.items():
+                  observations = {key:[] for key in fields}
                   for event in events:
                       event_id = as_int(event.get("eventId"))
-                      data = event_stats.get(event_id) or {}
-                      home_id = as_int(event.get("homeTeamId"))
-                      away_id = as_int(event.get("awayTeamId"))
-                      if team_id == home_id:
+                      values = event_stats.get(event_id) or {}
+                      if as_int(event.get("homeTeamId")) == team_id:
                           prefix = "home"
-                      elif team_id == away_id:
+                      elif as_int(event.get("awayTeamId")) == team_id:
                           prefix = "away"
                       else:
                           continue
-                      raw = {}
-                      for key, (suffix, low, high) in metrics.items():
-                          value = data.get(prefix + suffix)
-                          if isinstance(value, bool) or not isinstance(value, (int,float)):
+                      one_game = {}
+                      for key,suffix in fields.items():
+                          value = values.get(prefix+suffix)
+                          if isinstance(value,bool) or not isinstance(value,(int,float)):
                               continue
-                          numeric = float(value)
+                          numeric=float(value)
+                          low,high=bounds[key]
                           if low <= numeric <= high:
-                              raw[key] = numeric
-                      if "shots" in raw and "on" in raw and raw["on"] > raw["shots"]:
-                          raw.pop("on", None)
-                      for key, value in raw.items():
+                              one_game[key]=numeric
+                      if "shots" in one_game and "on" in one_game and one_game["on"] > one_game["shots"]:
+                          one_game.pop("on",None)
+                      for key,value in one_game.items():
                           observations[key].append(value)
-                  avgs = {}
-                  counts = {}
-                  for key, values in observations.items():
-                      if len(values) >= 2:
-                          avgs[key] = round(sum(values)/len(values), 1)
-                          counts[key] = len(values)
-                  team_avgs[team_id] = avgs
-                  team_counts[team_id] = counts
+                  avgs={}
+                  counts={}
+                  for key,values in observations.items():
+                      if len(values)>=2:
+                          avgs[key]=round(sum(values)/len(values),1)
+                          counts[key]=len(values)
+                  team_avgs[team_id]=avgs
+                  team_counts[team_id]=counts
 
-              suffix_map = {key:value[0] for key,value in metrics.items()}
-              added = 0
+              added=0
               for item in upcoming:
-                  home_id = as_int(item.get("homeTeamId"))
-                  away_id = as_int(item.get("awayTeamId"))
+                  home_id=team_ids.get(str(item.get("home") or "").strip())
+                  away_id=team_ids.get(str(item.get("away") or "").strip())
                   if not home_id or not away_id:
                       continue
-                  home = team_avgs.get(home_id) or {}
-                  away = team_avgs.get(away_id) or {}
-                  common = [key for key in metrics if key in home and key in away]
-                  if len(common) < 4:
+                  home=team_avgs.get(home_id) or {}
+                  away=team_avgs.get(away_id) or {}
+                  common=[key for key in fields if key in home and key in away]
+                  if len(common)<4:
                       continue
                   if "on" in common and "shots" in common and (
-                      home["on"] > home["shots"] or away["on"] > away["shots"]
+                      home["on"]>home["shots"] or away["on"]>away["shots"]
                   ):
                       common.remove("on")
-                  if len(common) < 4:
+                  if len(common)<4:
                       continue
-                  stats = {}
+                  stats={}
                   for key in common:
-                      suffix = suffix_map[key]
-                      stats["home"+suffix] = home[key]
-                      stats["away"+suffix] = away[key]
-                  home_samples = min(team_counts[home_id][key] for key in common)
-                  away_samples = min(team_counts[away_id][key] for key in common)
-
-                  # Prefer the SofaScore averages just computed from matching completed
-                  # events. They replace older pre-match feed averages rather than mix sources.
-                  item["stats"] = stats
-                  item["statsSource"] = "SofaScore · statistiche di eventi conclusi"
-                  item["statsSamples"] = {"home":home_samples,"away":away_samples}
-                  item["sources"] = sorted(set(item.get("sources") or []) | {"SofaScore historical stats"})
-                  previous = item.get("preMatchStats") or []
-                  item["preMatchStats"] = [
+                      stats["home"+fields[key]]=home[key]
+                      stats["away"+fields[key]]=away[key]
+                  home_samples=min(team_counts[home_id][key] for key in common)
+                  away_samples=min(team_counts[away_id][key] for key in common)
+                  item["stats"]=stats
+                  item["statsSource"]="SofaScore · statistiche di eventi conclusi"
+                  item["statsSamples"]={"home":home_samples,"away":away_samples}
+                  item["sources"]=sorted(set(item.get("sources") or []) | {"SofaScore historical stats"})
+                  previous=item.get("preMatchStats") or []
+                  item["preMatchStats"]=[
                       line for line in previous
                       if not str(line).startswith((
                           "Medie ultime 3 gare","Medie storiche validate","Falli ","Gialli "
@@ -1541,9 +1618,8 @@ jobs:
                       " · Rossi "+str(home.get("red","—"))+"–"+str(away.get("red","—"))+
                       " · Possesso "+str(home.get("possession","—"))+"%–"+str(away.get("possession","—"))+"%",
                   ])
-                  added += 1
-
-              print("SofaScore historical stat enrichment (verified team IDs):", added, "matches")
+                  added+=1
+              print("SofaScore historical stats (verified football searches/team IDs):",added,"matches")
 
           def enrich_with_api_football(records):
               key = os.environ.get("API_FOOTBALL_KEY", "").strip()
@@ -1907,7 +1983,6 @@ jobs:
           # family for form, so the app can distinguish statistical analysis from
           # a single market quote.
           enrich_with_espn_form(records)
-          enrich_with_espn_stat_averages(records)
 
           records.sort(
               key=lambda x: (
@@ -1958,9 +2033,9 @@ jobs:
               for future in as_completed(futures):
                   recent_map[futures[future]] = future.result()
 
-          # Use the same retrieved SofaScore team-history events to obtain real
-          # per-match statistics, averaging only when both teams have enough samples.
-          enrich_with_sofascore_stat_averages(records, recent_map)
+          # Resolve team IDs from SofaScore's football search, then average real stats
+          # from finished SofaScore events; do not reuse provider-specific IDs.
+          enrich_with_sofascore_stat_averages(records)
 
           for item in upcoming:
               form_data = forms.get(item["id"], {})
