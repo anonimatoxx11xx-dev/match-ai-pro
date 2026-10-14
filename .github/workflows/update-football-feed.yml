@@ -1411,9 +1411,12 @@ jobs:
                                   sport = {}
                               sport_slug = str(sport.get("slug") or "").lower()
                               sport_name = str(sport.get("name") or "").lower()
-                              if sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
+                              # A declared non-football sport is rejected. If the provider
+                              # omits sport metadata, exact team type + exact name is still
+                              # required and later events must contain the resolved team ID.
+                              if (sport_slug or sport_name) and sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
                                   continue
-                              if entity_type and entity_type not in {"team","participant"}:
+                              if entity_type != "team":
                                   continue
                               if normalize_team_name(entity.get("name")) == target:
                                   candidates.add(as_int(entity.get("id")))
@@ -1475,7 +1478,11 @@ jobs:
                               sport = ((event.get("tournament") or {}).get("category") or {}).get("sport") or event.get("sport") or {}
                               sport_slug = str(sport.get("slug") or "").lower() if isinstance(sport,dict) else ""
                               sport_name = str(sport.get("name") or "").lower() if isinstance(sport,dict) else ""
-                              if sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
+                              # SofaScore team ID is resolved through the football-team search
+                              # and must participate in this completed event. Reject explicit
+                              # non-football metadata, but don't discard events solely because
+                              # the historical API omits its sport/category block.
+                              if (sport_slug or sport_name) and sport_slug not in {"football","soccer"} and sport_name not in {"football","soccer"}:
                                   continue
                               if not event_id or team_id not in {home_id,away_id}:
                                   continue
