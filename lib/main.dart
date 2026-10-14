@@ -1186,11 +1186,28 @@ class _DetailState extends State<_Detail> {
             if(!wanted.contains(k)&&!wanted.contains(n))continue;
             final hv=val(item,'home');final av=val(item,'away');
             if(hv==null||av==null||hv<0||av<0)continue;
-            final maxValue=h.endsWith('Shots')?45:(h.endsWith('On')?30:
-              (h.endsWith('Corners')?25:(h.endsWith('Fouls')?60:
-              (h.endsWith('Throw')?80:(h.endsWith('Saves')?25:
-              (h.endsWith('Yellow')?12:(h.endsWith('Red')?5:
-              (h.endsWith('Possession')?100:100)))))));
+            final double maxValue;
+            if(h.endsWith('Shots')) {
+              maxValue=45;
+            } else if(h.endsWith('On')) {
+              maxValue=30;
+            } else if(h.endsWith('Corners')) {
+              maxValue=25;
+            } else if(h.endsWith('Fouls')) {
+              maxValue=60;
+            } else if(h.endsWith('Throw')) {
+              maxValue=80;
+            } else if(h.endsWith('Saves')) {
+              maxValue=25;
+            } else if(h.endsWith('Yellow')) {
+              maxValue=12;
+            } else if(h.endsWith('Red')) {
+              maxValue=5;
+            } else if(h.endsWith('Possession')) {
+              maxValue=100;
+            } else {
+              maxValue=100;
+            }
             if(hv>maxValue||av>maxValue)continue;
             if(h=='homeOn' && out['homeShots'] is num && hv>(out['homeShots'] as num))continue;
             if(a=='awayOn' && out['awayShots'] is num && av>(out['awayShots'] as num))continue;
