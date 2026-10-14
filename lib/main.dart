@@ -1198,11 +1198,47 @@ class _DetailState extends State<_Detail> {
       'totalshots':'shots','shots':'shots','shotsontarget':'on','shotsongoal':'on','cornerkicks':'corners','corners':'corners',
       'fouls':'fouls','throwins':'throw','goalkeepersaves':'saves','saves':'saves','yellowcards':'yellow','redcards':'red','possession':'possession',
     };
+    String normalizeTeamName(String value) {
+      final normalized=value.toLowerCase()
+          .replaceAll(RegExp(r'\\b(fc|cf|sc|afc|ac|as|club|football|soccer)\\b'),' ')
+          .replaceAll(RegExp(r'[^a-z0-9]'),'');
+      const aliases=<String,String>{
+        'manutd':'manchesterunited','manchesterutd':'manchesterunited',
+        'manunited':'manchesterunited','psg':'parissaintgermain',
+        'intermilan':'inter','internazionale':'inter',
+        'atleticodemadrid':'atleticomadrid','sportingcp':'sporting',
+        'bayernmuenchen':'bayernmunich','bayernmunchen':'bayernmunich',
+        'wolves':'wolverhamptonwanderers','spurs':'tottenhamhotspur',
+      };
+      return aliases[normalized]??normalized;
+    }
     Future<int?> findTeam(String name) async {
       try{
         final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name)),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return null; final data=jsonDecode(res.body); final results=data is Map?data['results']:null; if(results is! List)return null;
-        for(final item in results){if(item is! Map)continue;final entity=item['entity'];if(entity is Map && entity['id']!=null && (item['type']=='team' || entity['sport']?['slug']=='football'))return int.tryParse(entity['id'].toString());}
+        if(res.statusCode!=200)return null;
+        final data=jsonDecode(res.body);final results=data is Map?data['results']:null;
+        if(results is! List)return null;
+        final target=normalizeTeamName(name);
+        final candidates=<Map<String,dynamic>>[];
+        for(final item in results){
+          if(item is! Map)continue;
+          final entity=item['entity'];
+          if(entity is! Map||entity['id']==null)continue;
+          final type=(item['type']??'').toString().toLowerCase();
+          final entityType=(entity['type']??'').toString().toLowerCase();
+          final sport=entity['sport'];
+          final sportSlug=sport is Map?(sport['slug']??'').toString().toLowerCase():'';
+          final isTeam=type=='team'||entityType=='team'||(sportSlug=='football'&&entity['name']!=null);
+          if(!isTeam)continue;
+          final candidate=normalizeTeamName((entity['name']??'').toString());
+          if(candidate.isEmpty)continue;
+          if(candidate==target)return int.tryParse(entity['id'].toString());
+          if(target.length>=7&&candidate.length>=7&&
+             (candidate.contains(target)||target.contains(candidate))){
+            candidates.add(Map<String,dynamic>.from(entity));
+          }
+        }
+        if(candidates.length==1)return int.tryParse(candidates.single['id'].toString());
       }catch(_){ }
       return null;
     }
