@@ -1273,7 +1273,18 @@ class _DetailState extends State<_Detail> {
         final groups=all['groups'];if(groups is! List)return s;final items=<Map>[];for(final g in groups){if(g is Map&&g['statisticsItems'] is List)items.addAll((g['statisticsItems'] as List).whereType<Map>());}
         for(final item in items){
           final key=(item['key']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final name=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final normalized=wanted[key]??wanted[name];if(normalized==null)continue;
-          final raw=isHome?(item['homeValue']??item['home']):(item['awayValue']??item['away']);final value=double.tryParse(raw==null?'':raw.toString().replaceAll('%','').replaceAll(',','.'));if(value!=null)s[normalized]=value;
+          final raw=isHome?(item['homeValue']??item['home']):(item['awayValue']??item['away']);
+          final value=double.tryParse(raw==null?'':raw.toString().replaceAll('%','').replaceAll(',','.'));
+          if(value==null||!value.isFinite||value<0)continue;
+          // Reject impossible values instead of polluting the historical model.
+          final maximum=switch(normalized){
+            'shots'=>45.0,'on'=>25.0,'corners'=>25.0,'fouls'=>60.0,
+            'throw'=>70.0,'saves'=>25.0,'yellow'=>15.0,'red'=>5.0,
+            'possession'=>100.0,_=>1000.0,
+          };
+          if(value>maximum)continue;
+          if(normalized=='on'&&s['shots']!=null&&value>s['shots']!)continue;
+          s[normalized]=value;
         }
       }catch(_){ }
       return s;
@@ -1282,10 +1293,20 @@ class _DetailState extends State<_Detail> {
     final homeEvents=await recentEvents(homeId);final awayEvents=await recentEvents(awayId);
     final tasks=<Future<Map<String,double>>>[];for(final id in homeEvents)tasks.add(eventTeamStats(id,homeId));for(final id in awayEvents)tasks.add(eventTeamStats(id,awayId));
     final rows=await Future.wait(tasks);final hrows=rows.take(homeEvents.length).where((x)=>x.isNotEmpty).toList();final arows=rows.skip(homeEvents.length).where((x)=>x.isNotEmpty).toList();
-    void average(List<Map<String,double>> rows,String prefix){for(final key in wanted.values.toSet()){final values=rows.map((x)=>x[key]).whereType<double>().toList();if(values.isEmpty)continue;out[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse((values.reduce((a,b)=>a+b)/values.length).toStringAsFixed(1));}}
+    void average(List<Map<String,double>> rows,String prefix){
+      for(final key in wanted.values.toSet()){
+        final values=rows.map((x)=>x[key]).whereType<double>().toList();
+        // Show historical averages only when at least three completed
+        // matches actually contain that statistic.
+        if(values.length<3)continue;
+        out[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse(
+          (values.reduce((a,b)=>a+b)/values.length).toStringAsFixed(1));
+      }
+    }
     average(hrows,'home');average(arows,'away');
-    final samples=hrows.length<arows.length?hrows.length:arows.length;if(out.isEmpty)return {'stats':out,'source':''};
-    return {'stats':out,'source':'SofaScore · medie ultime '+samples.toString()+' gare'};
+    final samples=hrows.length<arows.length?hrows.length:arows.length;
+    if(out.isEmpty)return {'stats':out,'source':''};
+    return {'stats':out,'source':'SofaScore · gare concluse verificate; minimo 3 campioni per statistica, fino a '+samples.toString()+' gare per squadra'};
   }
   @override Widget build(BuildContext context){
     final m=widget.m;
