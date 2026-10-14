@@ -1946,10 +1946,6 @@ jobs:
               for future in as_completed(futures):
                   forms[futures[future]["id"]] = future.result()
 
-          # After collecting completed SofaScore event histories, obtain their match
-          # statistics and publish averages only when both teams have enough verified samples.
-          enrich_with_sofascore_stat_averages(records, recent_map)
-
           team_ids = []
           for item in upcoming:
               for team_id in (item["homeTeamId"], item["awayTeamId"]):
@@ -1961,6 +1957,10 @@ jobs:
               futures = {pool.submit(recent, team_id): team_id for team_id in team_ids[:50]}
               for future in as_completed(futures):
                   recent_map[futures[future]] = future.result()
+
+          # Use the same retrieved SofaScore team-history events to obtain real
+          # per-match statistics, averaging only when both teams have enough samples.
+          enrich_with_sofascore_stat_averages(records, recent_map)
 
           for item in upcoming:
               form_data = forms.get(item["id"], {})
