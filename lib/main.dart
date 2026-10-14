@@ -369,6 +369,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     'timestamp':m.timestamp??0,'status':m.status,
     'scoreHome':m.hs,'scoreAway':m.ascore,'scoreHTHome':m.htHome,'scoreHTAway':m.htAway,
     'preMatchStats':m.preMatchStats,'stats':m.stats,'updatedAt':m.updatedAt,
+    'proposals':m.proposals,
   };
   @override Widget build(BuildContext context){
     bool marketSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('(market signal)')); bool conflictSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('Conflitto evidenze')); final upcomingFeed=matches.isNotEmpty && matches.any((m)=>m.status=='NS' && m.time.contains('|')); final aiSignals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60 && !marketSignal(m) && !conflictSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final marketSignals=matches.where((m)=>m.status=='NS' && marketSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final strong=aiSignals.where((m)=>m.confidence>=80).toList(); final top=aiSignals.take(6).toList(); final medium=aiSignals.where((m)=>m.confidence<80).take(6).toList();
