@@ -1352,7 +1352,7 @@ jobs:
                   away = team_avgs.get("away") or {}
                   keys = tuple(metric_sources.keys())
                   common = [k for k in keys if k in home and k in away]
-                  if len(common) < 4:
+                  if len(common) < 2:
                       continue
 
                   stats = {}
