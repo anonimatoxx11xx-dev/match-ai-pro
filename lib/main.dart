@@ -1150,7 +1150,12 @@ class _DetailState extends State<_Detail> {
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
     final out=<String,dynamic>{};
     var source='';
-    if(m.stats.isNotEmpty){ out.addAll(m.stats); source=m.status=='NS'?'Feed · medie ultime gare':'Feed · statistiche evento'; }
+    // Pre-match averages from the shared feed may be stale or provider-mismatched.
+    // Recompute them from the selected teams' own finished SofaScore events.
+    if(m.stats.isNotEmpty && m.status!='NS'){
+      out.addAll(m.stats);
+      source='Feed · statistiche evento';
+    }
     // Do not pass a SofaScore event ID to ESPN: provider event IDs are
     // unrelated, and ESPN may return statistics for a different fixture.
     // Historical pre-match averages are loaded below; live/event stats use
@@ -1255,7 +1260,13 @@ class _DetailState extends State<_Detail> {
       try{
         final info=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
         if(info.statusCode!=200)return s; final infoData=jsonDecode(info.body);final ev=infoData is Map?infoData['event']:null; if(ev is! Map)return s;
-        final home=ev['homeTeam'];final homeId=home is Map?int.tryParse(home['id']?.toString()??''):null;final isHome=homeId==teamId;
+        final home=ev['homeTeam'];final away=ev['awayTeam'];
+        final homeId=home is Map?int.tryParse(home['id']?.toString()??''):null;
+        final awayId=away is Map?int.tryParse(away['id']?.toString()??''):null;
+        // A result must contain the exact requested team ID; never treat an
+        // unrelated event as an away fixture just because its home ID differs.
+        if(homeId!=teamId && awayId!=teamId)return s;
+        final isHome=homeId==teamId;
         final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
         if(res.statusCode!=200)return s; final data=jsonDecode(res.body);final periods=data is Map?data['statistics']:null;if(periods is! List)return s;
         Map? all;for(final p in periods){if(p is Map&&p['period']=='ALL'){all=p;break;}}if(all==null)return s;
