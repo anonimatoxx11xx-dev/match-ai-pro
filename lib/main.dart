@@ -654,7 +654,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         ]),
         const SizedBox(height:9),
         Text('Campione: casa '+(evidence['homeGames']??'—').toString()+
-          ' gare · ospite '+(evidence['awayGames']??'—').toString()+' gare · H2H '+(evidence['h2hGames']??0).toString(),
+          ' gare · ospite '+(evidence['awayGames']??'—').toString()+' gare · H2H '+(evidence['h2hGames']??0).toString()+
+          ' · campione breve corretto verso la media',
           style:const TextStyle(color:Color(0xFF9299AD),fontSize:9,fontWeight:FontWeight.w800)),
         const SizedBox(height:5),
         Text('1X2 modello: 1 '+_forecastPercent(p['probHome'])+
