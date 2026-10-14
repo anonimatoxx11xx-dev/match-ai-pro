@@ -911,7 +911,9 @@ jobs:
                   key = (normalize_team_name(item.get("home")), normalize_team_name(item.get("away")))
                   existing[key] = item
                   item.setdefault("sources", [])
-                  primary = "SofaScore" if item.get("id", 0) > 0 else "ESPN"
+                  # Provider identity is explicit; ESPN event IDs are numeric too.
+                  # Never label a record SofaScore merely because its ID is non-zero.
+                  primary = "SofaScore" if item.get("eventIdProvider") == "SofaScore" else "ESPN"
                   if primary not in item["sources"]:
                       item["sources"].append(primary)
               added = 0
@@ -928,6 +930,13 @@ jobs:
                       if current.get("status") == "NS" and item.get("status") == "LIVE":
                           current["status"] = "LIVE"
                           current["live"] = True
+                          # Preserve scores when a secondary provider upgrades a fixture to LIVE.
+                          # Previously only status changed, leaving live matches at — - —.
+                          for score_key in ("scoreHome", "scoreAway", "scoreHTHome", "scoreHTAway"):
+                              score_value = item.get(score_key)
+                              if score_value is not None:
+                                  current[score_key] = score_value
+                          current["liveScoreSource"] = next(iter(item.get("sources") or ["secondary provider"]), "secondary provider")
                       continue
                   records.append(item)
                   existing[key] = item
