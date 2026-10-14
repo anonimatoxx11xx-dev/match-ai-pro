@@ -1205,7 +1205,7 @@ class _DetailState extends State<_Detail> {
     };
     String normalizeTeamName(String value) {
       final normalized=value.toLowerCase()
-          .replaceAll(RegExp(r'\\b(fc|cf|sc|afc|ac|as|club|football|soccer)\\b'),' ')
+          .replaceAll(RegExp(r'\b(fc|cf|sc|afc|ac|as|club|football|soccer)\b'),' ')
           .replaceAll(RegExp(r'[^a-z0-9]'),'');
       const aliases=<String,String>{
         'manutd':'manchesterunited','manchesterutd':'manchesterunited',
