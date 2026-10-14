@@ -227,7 +227,10 @@ class ScorePredictionEngine {
     // If ESPN provides an identifiable favourite and its actual moneyline,
     // gently reconcile the goal model with that independent market signal.
     // Never infer the favourite from a bare, side-less odds number.
-    final marketSignal = _marketFavoriteSignal(pre, homeName, awayName);
+    final marketSignal = _marketFavoriteSignal(
+      pre, homeName, awayName,
+      (fixture['proposals'] as List? ?? const <dynamic>[]),
+    );
     if (marketSignal != null) {
       final initial = _oneXtwo(homeLambda, awayLambda);
       final side = marketSignal['side'] as String;
@@ -292,6 +295,8 @@ class ScorePredictionEngine {
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
       h2h['games'], h2h['homeGF'], h2h['awayGF'],
       _marketExpectedTotal(pre),
+      (fixture['proposals'] as List? ?? const <dynamic>[])
+          .map((item) => item.toString()).toList(),
       // Include all sourced market signals; otherwise stored predictions
       // can remain frozen even after a new model starts using those signals.
       pre.where((line) => line.toLowerCase().startsWith('moneyline:') ||
@@ -355,7 +360,8 @@ class ScorePredictionEngine {
   }
 
   Map<String, dynamic>? _marketFavoriteSignal(
-    List<String> lines, String homeName, String awayName) {
+    List<String> lines, String homeName, String awayName,
+    [List<dynamic> proposals = const <dynamic>[]]) {
     String? favorite;
     double? moneyline;
     for (final line in lines) {
@@ -367,6 +373,24 @@ class ScorePredictionEngine {
             .firstMatch(line.substring(line.indexOf(':') + 1));
         if (match != null) {
           moneyline = double.tryParse(match.group(0)!.replaceAll(',', '.'));
+        }
+      }
+    }
+    // The feed's proposal is itself sourced from the odds provider. Preserve
+    // its named winner as a fallback when preMatchStats was rebuilt from form
+    // and accidentally dropped the "Mercato favorito" metadata.
+    if (favorite == null) {
+      for (final raw in proposals) {
+        final line = raw.toString();
+        if (!line.toLowerCase().startsWith('winner') ||
+            line.toLowerCase().contains('conflitto')) continue;
+        if (_similarTeamNames(homeName, line)) {
+          favorite = homeName;
+          break;
+        }
+        if (_similarTeamNames(awayName, line)) {
+          favorite = awayName;
+          break;
         }
       }
     }
