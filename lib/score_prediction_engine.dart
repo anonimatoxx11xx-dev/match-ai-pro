@@ -308,7 +308,7 @@ class ScorePredictionEngine {
   double? _marketExpectedTotal(List<String> lines) {
     for (final line in lines) {
       final match = RegExp(
-        r'^\\s*Totale\\s+gol\\s*:\\s*(\\d+(?:[.,]\\d+)?)',
+        r'^\s*Totale\s+gol\s*:\s*(\d+(?:[.,]\d+)?)',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) continue;
