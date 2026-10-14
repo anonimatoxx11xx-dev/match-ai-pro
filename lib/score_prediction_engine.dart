@@ -231,7 +231,7 @@ class ScorePredictionEngine {
     if (marketSignal != null) {
       final initial = _oneXtwo(homeLambda, awayLambda);
       final side = marketSignal['side'] as String;
-      final currentProbability = initial[side] ?? 0.0;
+      final currentProbability = (initial[side] ?? 0.0) / 100.0;
       final impliedProbability = marketSignal['implied'] as double;
       final targetProbability = (currentProbability +
               ((impliedProbability - currentProbability) * 0.35)
@@ -248,7 +248,7 @@ class ScorePredictionEngine {
         final candidateHome = totalGoals * homeShare;
         final candidateAway = totalGoals - candidateHome;
         final probabilities = _oneXtwo(candidateHome, candidateAway);
-        final distance = ((probabilities[side] ?? 0.0) - targetProbability).abs();
+        final distance = (((probabilities[side] ?? 0.0) / 100.0) - targetProbability).abs();
         if (distance < bestDistance) {
           bestDistance = distance;
           bestHome = candidateHome;
@@ -286,7 +286,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump this when forecast logic changes so already-saved pre-match
       // forecasts are recalculated after an app update.
-      'score-model-v3',
+      'score-model-v4',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
