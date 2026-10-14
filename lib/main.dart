@@ -368,6 +368,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     'id':m.id,'home':m.home,'away':m.away,'league':m.league,'time':m.time,
     'timestamp':m.timestamp??0,'status':m.status,
     'scoreHome':m.hs,'scoreAway':m.ascore,'scoreHTHome':m.htHome,'scoreHTAway':m.htAway,
+    // Pass the feed's named Winner signal to the score model. Without this,
+    // _marketFavoriteSignal never receives proposals and the odds adjustment
+    // silently does nothing even when the feed explicitly identifies a side.
+    'proposals':m.proposals,
     'preMatchStats':m.preMatchStats,'stats':m.stats,'updatedAt':m.updatedAt,
     'proposals':m.proposals,
   };
