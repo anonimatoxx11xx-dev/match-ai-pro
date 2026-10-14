@@ -364,6 +364,7 @@ class ScorePredictionEngine {
     [List<dynamic> proposals = const <dynamic>[]]) {
     String? favorite;
     double? moneyline;
+    double? genericMoneyline;
     for (final line in lines) {
       final lower = line.toLowerCase();
       if (lower.startsWith('mercato favorito:')) {
@@ -373,6 +374,12 @@ class ScorePredictionEngine {
             .firstMatch(line.substring(line.indexOf(':') + 1));
         if (match != null) {
           moneyline = double.tryParse(match.group(0)!.replaceAll(',', '.'));
+        }
+      } else if (lower.startsWith('moneyline:')) {
+        final match = RegExp(r'[+-]?\d+(?:[.,]\d+)?')
+            .firstMatch(line.substring(line.indexOf(':') + 1));
+        if (match != null) {
+          genericMoneyline = double.tryParse(match.group(0)!.replaceAll(',', '.'));
         }
       }
     }
@@ -394,6 +401,10 @@ class ScorePredictionEngine {
         }
       }
     }
+    // A generic moneyline has no side by itself. It is usable only after
+    // an explicit named favorite has been recovered from the feed's Winner
+    // proposal; otherwise it remains intentionally ignored.
+    moneyline ??= favorite == null ? null : genericMoneyline;
     if (favorite == null || moneyline == null ||
         !moneyline.isFinite || moneyline.abs() < 20 || moneyline.abs() > 5000) {
       return null;
