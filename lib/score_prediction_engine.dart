@@ -171,8 +171,15 @@ class ScorePredictionEngine {
     final awayHistory = _recentTeamForm(awayName, kickOff, historicalResults);
     final parsedHome = _parseForm(pre, 'casa');
     final parsedAway = _parseForm(pre, 'ospiti');
-    final homeForm = homeHistory ?? parsedHome;
-    final awayForm = awayHistory ?? parsedAway;
+    // Prefer the feed's explicitly sourced recent-form summary when it has
+    // at least three games. Name-based history matching is only a fallback:
+    // fuzzy aliases can otherwise attach a similarly named club's results.
+    final homeForm = parsedHome != null && (parsedHome['games'] as int) >= 3
+        ? parsedHome
+        : (homeHistory ?? parsedHome);
+    final awayForm = parsedAway != null && (parsedAway['games'] as int) >= 3
+        ? parsedAway
+        : (awayHistory ?? parsedAway);
     if (homeForm == null || awayForm == null) return null;
     final homeGames = homeForm['games'] as int;
     final awayGames = awayForm['games'] as int;
@@ -193,6 +200,21 @@ class ScorePredictionEngine {
       final h2hAway = h2h['awayGF'] as double;
       baseHome = baseHome * 0.88 + h2hHome * 0.12;
       baseAway = baseAway * 0.88 + h2hAway * 0.12;
+    }
+
+    // The published feed may include the bookmaker's total-goals line. It is
+    // not a match result or a guarantee, but it is a useful independent prior
+    // when it is present. Blend gently with the historical goal model instead
+    // of letting a small three-game sample dominate every score prediction.
+    final marketTotal = _marketExpectedTotal(pre);
+    if (marketTotal != null) {
+      final currentTotal = baseHome + baseAway;
+      if (currentTotal > 0) {
+        final blendedTotal = currentTotal * 0.75 + marketTotal * 0.25;
+        final scale = (blendedTotal / currentTotal).clamp(0.82, 1.22).toDouble();
+        baseHome *= scale;
+        baseAway *= scale;
+      }
     }
 
     final homeKey = _teamKey(homeName);
@@ -281,6 +303,23 @@ class ScorePredictionEngine {
       'signature': signature,
       'updatedAt': DateTime.now().toIso8601String(),
     };
+  }
+
+  double? _marketExpectedTotal(List<String> lines) {
+    for (final line in lines) {
+      final match = RegExp(
+        r'^\\s*Totale\\s+gol\\s*:\\s*(\\d+(?:[.,]\\d+)?)',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (match == null) continue;
+      final lineValue = double.tryParse((match.group(1) ?? '').replaceAll(',', '.'));
+      if (lineValue == null || !lineValue.isFinite ||
+          lineValue < 1.5 || lineValue > 5.5) return null;
+      // A quoted line (e.g. 2.5/3.5) is a threshold, not the exact expected
+      // goal total. Use a conservative offset and a limited 25% blend.
+      return (lineValue - 0.20).clamp(1.3, 4.8).toDouble();
+    }
+    return null;
   }
 
   double? _formAverage(Map<String, dynamic> form, String key) {
