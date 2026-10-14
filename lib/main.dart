@@ -1176,7 +1176,7 @@ class _DetailState extends State<_Detail> {
         int? val(Map x,String side){
           final raw=x[side+'Value']??x[side];
           if(raw is num)return raw.round();
-          final match=RegExp(r'-?\\d+(?:\\.\\d+)?').firstMatch(raw?.toString()??'');
+          final match=RegExp(r'-?\d+(?:\.\d+)?').firstMatch(raw?.toString()??'');
           return match==null?null:double.tryParse(match.group(0)!)?.round();
         }
         void pair(Set<String> names,String h,String a){
