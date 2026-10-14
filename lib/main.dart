@@ -1191,7 +1191,10 @@ class _DetailState extends State<_Detail> {
         if(out.isNotEmpty)source=source.isEmpty?'ESPN':source+' + ESPN';
       }catch(_){ }
     }
-    await tryEspnCurrent();
+    // Do not pass a SofaScore event ID to ESPN: provider event IDs are
+    // unrelated, and ESPN may return statistics for a different fixture.
+    // Historical pre-match averages are loaded below; live/event stats use
+    // the matching SofaScore event endpoint only.
 
     Future<void> trySofaCurrent() async {
       if(m.id<=0)return;
