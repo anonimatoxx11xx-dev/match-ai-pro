@@ -2052,6 +2052,12 @@ jobs:
               for future in as_completed(futures):
                   recent_map[futures[future]] = future.result()
 
+          # ESPN's competition-verified summary parser was implemented but never
+          # called, leaving historical statistics at zero even when summaries existed.
+          # Run it first; SofaScore can then fill additional gaps without overwriting
+          # already verified ESPN averages.
+          enrich_with_espn_stat_averages(records)
+
           # Resolve team IDs from SofaScore's football search, then average real stats
           # from finished SofaScore events; do not reuse provider-specific IDs.
           enrich_with_sofascore_stat_averages(records)
