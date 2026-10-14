@@ -1609,9 +1609,17 @@ jobs:
                       stats["away"+fields[key]]=away[key]
                   home_samples=min(team_counts[home_id][key] for key in common)
                   away_samples=min(team_counts[away_id][key] for key in common)
-                  item["stats"]=stats
-                  item["statsSource"]="SofaScore · statistiche di eventi conclusi"
-                  item["statsSamples"]={"home":home_samples,"away":away_samples}
+                  existing_stats = item.get("stats") if isinstance(item.get("stats"), dict) else {}
+                  # Keep verified ESPN fields and use SofaScore only to fill gaps.
+                  merged_stats = dict(existing_stats)
+                  for stat_key, stat_value in stats.items():
+                      merged_stats.setdefault(stat_key, stat_value)
+                  item["stats"] = merged_stats
+                  if existing_stats:
+                      item["statsSource"] = str(item.get("statsSource") or "ESPN historical match summaries") + " + SofaScore (gaps only)"
+                  else:
+                      item["statsSource"] = "SofaScore · statistiche di eventi conclusi"
+                  item["statsSamples"] = item.get("statsSamples") or {"home":home_samples,"away":away_samples}
                   item["sources"]=sorted(set(item.get("sources") or []) | {"SofaScore historical stats"})
                   previous=item.get("preMatchStats") or []
                   item["preMatchStats"]=[
