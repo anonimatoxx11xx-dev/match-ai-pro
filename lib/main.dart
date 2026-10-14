@@ -42,6 +42,7 @@ class Match {
   final List<String> proposals;
   final List<String> preMatchStats;
   final Map<String,dynamic> stats;
+  final String statsSource;
   final String updatedAt;
   final String source;
   final List<String> sources;
@@ -65,6 +66,7 @@ class Match {
     required this.proposals,
     required this.preMatchStats,
     required this.stats,
+    this.statsSource = '',
     required this.updatedAt,
     required this.source,
     this.sources = const [],
@@ -263,6 +265,7 @@ class MatchService {
       proposals:proposals,
       preMatchStats:pre,
       stats:_map(m['stats']),
+      statsSource:m['statsSource']?.toString() ?? '',
       updatedAt:updatedAt,
       source:decodedSource,
       sources:(m['sources'] is List)?List<String>.from((m['sources'] as List).map((x)=>x.toString())):const [],
@@ -1152,9 +1155,11 @@ class _DetailState extends State<_Detail> {
     var source='';
     // Pre-match averages from the shared feed may be stale or provider-mismatched.
     // Recompute them from the selected teams' own finished SofaScore events.
-    if(m.stats.isNotEmpty && m.status!='NS'){
+    if(m.stats.isNotEmpty){
       out.addAll(m.stats);
-      source='Feed · statistiche evento';
+      source=m.status=='NS'
+          ? (m.statsSource.isNotEmpty ? m.statsSource : 'Feed · medie storiche pre-match')
+          : 'Feed · statistiche evento';
     }
     // Do not pass a SofaScore event ID to ESPN: provider event IDs are
     // unrelated, and ESPN may return statistics for a different fixture.
@@ -1234,7 +1239,7 @@ class _DetailState extends State<_Detail> {
     }
     if(out.isNotEmpty){
       final hs=historical['source']?.toString()??'';
-      if(hs.isNotEmpty) source=source.isEmpty?hs:'$source + $hs';
+      if(hs.isNotEmpty && !source.contains(hs)) source=source.isEmpty?hs:'$source + $hs';
       return {'stats':out,'source':source};
     }
     return {'stats':out,'source':source};
