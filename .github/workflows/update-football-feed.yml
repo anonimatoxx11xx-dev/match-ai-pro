@@ -114,6 +114,7 @@ jobs:
               dt = datetime.fromtimestamp(timestamp, TZ) if timestamp else None
               return {
                   "id": as_int(event.get("id")) or 0,
+                  "eventIdProvider": "SofaScore",
                   "home": str(home.get("name") or "Home"),
                   "away": str(away.get("name") or "Away"),
                   "time": dt.strftime("%H:%M") if dt else "--:--",
@@ -170,6 +171,7 @@ jobs:
                   display_time = local_dt.strftime("%Y-%m-%d|%H:%M")
               return {
                   "id": as_int(event.get("id")) or 0,
+                  "eventIdProvider": "ESPN",
                   "home": str(home_team.get("displayName") or home_team.get("name") or "Home"),
                   "away": str(away_team.get("displayName") or away_team.get("name") or "Away"),
                   "time": display_time,
@@ -2001,7 +2003,12 @@ jobs:
           )
           records = records[:150]
 
-          candidates = [x for x in records if x["live"] or x["status"] == "FT"][:60]
+          # Never send ESPN/provider-specific event IDs to SofaScore's statistics API.
+          candidates = [
+              x for x in records
+              if (x.get("live") or x.get("status") == "FT")
+              and x.get("eventIdProvider") == "SofaScore"
+          ][:60]
           with ThreadPoolExecutor(max_workers=10) as pool:
               futures = {pool.submit(match_stats, x["id"]): x for x in candidates}
               for future in as_completed(futures):
