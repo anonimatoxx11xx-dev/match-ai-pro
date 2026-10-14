@@ -219,10 +219,46 @@ class ScorePredictionEngine {
 
     final homeKey = _teamKey(homeName);
     final awayKey = _teamKey(awayName);
-    final homeLambda =
+    var homeLambda =
         (baseHome + (_teamGoalBias[homeKey] ?? 0.0)).clamp(0.10, 4.0).toDouble();
-    final awayLambda =
+    var awayLambda =
         (baseAway + (_teamGoalBias[awayKey] ?? 0.0)).clamp(0.10, 4.0).toDouble();
+
+    // If ESPN provides an identifiable favourite and its actual moneyline,
+    // gently reconcile the goal model with that independent market signal.
+    // Never infer the favourite from a bare, side-less odds number.
+    final marketSignal = _marketFavoriteSignal(pre, homeName, awayName);
+    if (marketSignal != null) {
+      final initial = _oneXtwo(homeLambda, awayLambda);
+      final side = marketSignal['side'] as String;
+      final currentProbability = initial[side] ?? 0.0;
+      final impliedProbability = marketSignal['implied'] as double;
+      final targetProbability = (currentProbability +
+              ((impliedProbability - currentProbability) * 0.35)
+                  .clamp(-0.15, 0.15))
+          .clamp(0.05, 0.90)
+          .toDouble();
+      final totalGoals = homeLambda + awayLambda;
+      var bestDistance = double.infinity;
+      var bestHome = homeLambda;
+      var bestAway = awayLambda;
+      // Preserve the total-goals estimate while shifting expected goals toward
+      // the favourite. This keeps 1X2, exact scores and goal markets coherent.
+      for (var homeShare = 0.05; homeShare <= 0.9501; homeShare += 0.005) {
+        final candidateHome = totalGoals * homeShare;
+        final candidateAway = totalGoals - candidateHome;
+        final probabilities = _oneXtwo(candidateHome, candidateAway);
+        final distance = ((probabilities[side] ?? 0.0) - targetProbability).abs();
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestHome = candidateHome;
+          bestAway = candidateAway;
+        }
+      }
+      homeLambda = bestHome.clamp(0.10, 4.0).toDouble();
+      awayLambda = bestAway.clamp(0.10, 4.0).toDouble();
+    }
+
     final half = _bestExactScore(homeLambda * _halfTimeFraction,
         awayLambda * _halfTimeFraction);
     final full = _bestExactScore(homeLambda, awayLambda);
@@ -259,6 +295,8 @@ class ScorePredictionEngine {
       // Include all sourced market signals; otherwise stored predictions
       // can remain frozen even after a new model starts using those signals.
       pre.where((line) => line.toLowerCase().startsWith('moneyline:') ||
+          line.toLowerCase().startsWith('moneyline favorito:') ||
+          line.toLowerCase().startsWith('mercato favorito:') ||
           line.toLowerCase().startsWith('totale gol:')).toList(),
       _teamGoalBias[homeKey] ?? 0.0,
       _teamGoalBias[awayKey] ?? 0.0,
@@ -307,10 +345,44 @@ class ScorePredictionEngine {
         'h2hAwayGF': h2h['awayGF'],
       },
       'basis':
-          'Gol recenti pesati per recenza, gol fatti/subiti, fattore casa, H2H attenuati e correzione appresa dagli esiti verificati.',
+          'Gol recenti verificati, fattore casa e H2H solo quando la competizione è identificata; ' +
+          (marketSignal != null
+              ? 'probabilità riconciliate con il moneyline del favorito.'
+              : 'nessun aggiustamento moneyline applicato: lato/quotazione non verificabili.'),
       'signature': signature,
       'updatedAt': DateTime.now().toIso8601String(),
     };
+  }
+
+  Map<String, dynamic>? _marketFavoriteSignal(
+    List<String> lines, String homeName, String awayName) {
+    String? favorite;
+    double? moneyline;
+    for (final line in lines) {
+      final lower = line.toLowerCase();
+      if (lower.startsWith('mercato favorito:')) {
+        favorite = line.substring(line.indexOf(':') + 1).trim();
+      } else if (lower.startsWith('moneyline favorito:')) {
+        final match = RegExp(r'[+-]?\\d+(?:[.,]\\d+)?')
+            .firstMatch(line.substring(line.indexOf(':') + 1));
+        if (match != null) {
+          moneyline = double.tryParse(match.group(0)!.replaceAll(',', '.'));
+        }
+      }
+    }
+    if (favorite == null || moneyline == null ||
+        !moneyline.isFinite || moneyline.abs() < 20 || moneyline.abs() > 5000) {
+      return null;
+    }
+    final side = _similarTeamNames(favorite, homeName)
+        ? 'home'
+        : (_similarTeamNames(favorite, awayName) ? 'away' : '');
+    if (side.isEmpty) return null;
+    final implied = moneyline < 0
+        ? -moneyline / (-moneyline + 100.0)
+        : 100.0 / (moneyline + 100.0);
+    if (!implied.isFinite || implied < 0.05 || implied > 0.98) return null;
+    return <String, dynamic>{'side': side, 'implied': implied};
   }
 
   double? _marketExpectedTotal(List<String> lines) {
@@ -350,6 +422,10 @@ class ScorePredictionEngine {
     for (final result in history) {
       final status = (result['status'] ?? '').toString().toUpperCase();
       if (status != 'FT' && status != 'FINISHED') continue;
+      // Historical feeds can label unrelated competitions simply "Football".
+      // Do not use those rows for team form: names like Liverpool are not unique.
+      final league = (result['league'] ?? '').toString().trim().toLowerCase();
+      if (league.isEmpty || const {'football', 'soccer', 'calcio'}.contains(league)) continue;
       final timestamp = _integer(result['timestamp']) ?? 0;
       if (timestamp <= earliest || timestamp >= kickOff) continue;
       final homeGoals = _integer(result['scoreHome']);
@@ -407,6 +483,8 @@ class ScorePredictionEngine {
       if (timestamp <= earliest || timestamp >= kickOff) continue;
       final status = (result['status'] ?? '').toString().toUpperCase();
       if (status != 'FT' && status != 'FINISHED') continue;
+      final league = (result['league'] ?? '').toString().trim().toLowerCase();
+      if (league.isEmpty || const {'football', 'soccer', 'calcio'}.contains(league)) continue;
       final homeGoals = _integer(result['scoreHome']);
       final awayGoals = _integer(result['scoreAway']);
       if (homeGoals == null || awayGoals == null) continue;
