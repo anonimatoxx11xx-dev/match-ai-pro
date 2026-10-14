@@ -1998,6 +1998,46 @@ jobs:
           # a single market quote.
           enrich_with_espn_form(records)
 
+          # Ensure the score predictor receives an explicitly named favourite.
+          # Some cached/provider records retain only "Moneyline: -260" even
+          # though proposals already identify the market winner. A bare line
+          # is ambiguous, so only bind it when a single explicit Winner signal
+          # names one of the fixture's two teams.
+          for market_item in records:
+              if market_item.get("status") != "NS":
+                  continue
+              proposals_now = [str(x) for x in market_item.get("proposals") or []]
+              winner_line = next((x for x in proposals_now
+                                  if x.startswith("Winner • ")
+                                  and "conflitto" not in x.lower()
+                                  and "conflict" not in x.lower()), None)
+              if not winner_line:
+                  continue
+              winner_name = winner_line.split("Winner • ", 1)[1].split(" (", 1)[0].strip()
+              home_name = str(market_item.get("home") or "")
+              away_name = str(market_item.get("away") or "")
+              winner_key = normalize_team_name(winner_name)
+              if winner_key not in {normalize_team_name(home_name), normalize_team_name(away_name)}:
+                  continue
+              pre_lines = market_item.setdefault("preMatchStats", [])
+              moneyline_line = next((str(x) for x in pre_lines
+                                     if str(x).lower().startswith("moneyline:")), None)
+              if not moneyline_line:
+                  continue
+              try:
+                  raw_moneyline = float(moneyline_line.split(":", 1)[1].strip().replace(",", "."))
+              except Exception:
+                  continue
+              if not (-5000 <= raw_moneyline <= 5000) or abs(raw_moneyline) < 20:
+                  continue
+              # The odds value was selected for the named market favourite by
+              # espn_proposal. Preserve that relationship for the local model.
+              pre_lines[:] = [x for x in pre_lines
+                              if not str(x).lower().startswith("moneyline favorito:")
+                              and not str(x).lower().startswith("mercato favorito:")]
+              pre_lines.append("Moneyline favorito: " + str(raw_moneyline))
+              pre_lines.append("Mercato favorito: " + winner_name)
+
           records.sort(
               key=lambda x: (
                   not x.get("live", False),
