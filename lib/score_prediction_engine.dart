@@ -363,7 +363,7 @@ class ScorePredictionEngine {
       if (lower.startsWith('mercato favorito:')) {
         favorite = line.substring(line.indexOf(':') + 1).trim();
       } else if (lower.startsWith('moneyline favorito:')) {
-        final match = RegExp(r'[+-]?\\d+(?:[.,]\\d+)?')
+        final match = RegExp(r'[+-]?\d+(?:[.,]\d+)?')
             .firstMatch(line.substring(line.indexOf(':') + 1));
         if (match != null) {
           moneyline = double.tryParse(match.group(0)!.replaceAll(',', '.'));
