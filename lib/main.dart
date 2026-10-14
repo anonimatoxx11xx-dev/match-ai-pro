@@ -1151,14 +1151,6 @@ class _DetailState extends State<_Detail> {
     final out=<String,dynamic>{};
     var source='';
     if(m.stats.isNotEmpty){ out.addAll(m.stats); source=m.status=='NS'?'Feed · medie ultime gare':'Feed · statistiche evento'; }
-    const slugs=<String,String>{
-      'premier league':'eng.1','championship':'eng.2','league one':'eng.3','league two':'eng.4','national league':'eng.5',
-      'serie a':'ita.1','serie b':'ita.2','la liga':'esp.1','segunda':'esp.2','ligue 1':'fra.1','ligue 2':'fra.2',
-      'eredivisie':'ned.1','turkish super lig':'tur.1','bundesliga':'ger.1','2. bundesliga':'ger.2',
-      'uefa champions league':'uefa.champions','uefa europa league':'uefa.europa','uefa conference league':'uefa.europa.conf',
-    };
-    final slug=slugs[m.league.toLowerCase().trim()]??'';
-
     // Do not pass a SofaScore event ID to ESPN: provider event IDs are
     // unrelated, and ESPN may return statistics for a different fixture.
     // Historical pre-match averages are loaded below; live/event stats use
