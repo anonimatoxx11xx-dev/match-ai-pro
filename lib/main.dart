@@ -1172,11 +1172,37 @@ class _DetailState extends State<_Detail> {
         if(all==null)return;
         final groups=all['groups']; if(groups is! List)return;
         final items=<Map>[]; for(final g in groups){if(g is Map && g['statisticsItems'] is List)items.addAll((g['statisticsItems'] as List).whereType<Map>());}
-        int? val(Map x,String side){final raw=x[side+'Value']??x[side];return raw is num?raw.toInt():int.tryParse(raw?.toString()??'');}
-        void pair(Set<String> names,String h,String a){for(final item in items){final k=(item['key']??'').toString().toLowerCase();final n=(item['name']??'').toString().toLowerCase();if(names.any((q)=>k.contains(q)||n.contains(q))){final hv=val(item,'home');final av=val(item,'away');if(hv!=null&&av!=null){out[h]=hv;out[a]=av;}break;}}}
-        pair({'totalshots','shots'},'homeShots','awayShots'); pair({'shotsontarget','shots on target'},'homeOn','awayOn'); pair({'cornerkicks','corners'},'homeCorners','awayCorners');
-        pair({'fouls'},'homeFouls','awayFouls'); pair({'throwins','throw-ins'},'homeThrow','awayThrow'); pair({'goalkeepersaves','saves'},'homeSaves','awaySaves');
+        String statKey(dynamic value)=>value.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
+        int? val(Map x,String side){
+          final raw=x[side+'Value']??x[side];
+          if(raw is num)return raw.round();
+          final match=RegExp(r'-?\\d+(?:\\.\\d+)?').firstMatch(raw?.toString()??'');
+          return match==null?null:double.tryParse(match.group(0)!)?.round();
+        }
+        void pair(Set<String> names,String h,String a){
+          final wanted=names.map(statKey).toSet();
+          for(final item in items){
+            final k=statKey(item['key']??'');final n=statKey(item['name']??'');
+            if(!wanted.contains(k)&&!wanted.contains(n))continue;
+            final hv=val(item,'home');final av=val(item,'away');
+            if(hv==null||av==null||hv<0||av<0)continue;
+            final maxValue=h.endsWith('Shots')?45:(h.endsWith('On')?30:
+              (h.endsWith('Corners')?25:(h.endsWith('Fouls')?60:
+              (h.endsWith('Throw')?80:(h.endsWith('Saves')?25:
+              (h.endsWith('Yellow')?12:(h.endsWith('Red')?5:
+              (h.endsWith('Possession')?100:100)))))));
+            if(hv>maxValue||av>maxValue)continue;
+            if(h=='homeOn' && out['homeShots'] is num && hv>(out['homeShots'] as num))continue;
+            if(a=='awayOn' && out['awayShots'] is num && av>(out['awayShots'] as num))continue;
+            out[h]=hv;out[a]=av;break;
+          }
+        }
+        pair({'totalshots','shots'},'homeShots','awayShots'); pair({'shotsontarget','shots on target','shotsongoal'},'homeOn','awayOn'); pair({'cornerkicks','corners'},'homeCorners','awayCorners');
+        pair({'fouls'},'homeFouls','awayFouls'); pair({'throwins','throw-ins','throw ins'},'homeThrow','awayThrow'); pair({'goalkeepersaves','saves'},'homeSaves','awaySaves');
         pair({'yellowcards','yellow cards'},'homeYellow','awayYellow'); pair({'redcards','red cards'},'homeRed','awayRed');
+        pair({'offsides','offside'},'homeOffsides','awayOffsides'); pair({'blockedshots','blocked shots','shotsblocked'},'homeBlocked','awayBlocked');
+        pair({'tackles'},'homeTackles','awayTackles'); pair({'clearances'},'homeClearances','awayClearances');
+        pair({'ballpossession','possession','possessionpercentage'},'homePossession','awayPossession');
         if(out.isNotEmpty)source=source.isEmpty?'SofaScore':source+' + SofaScore';
       }catch(_){ }
     }
