@@ -245,7 +245,8 @@ class MatchService {
         .where((x) => x.isNotEmpty)
         .toList();
     final score = (_int(m['proposalScore']) ?? 0).clamp(0, 100);
-    final confidence = score > 0 ? score : (proposals.isNotEmpty ? 50 : 0);
+    // Never invent an AI index when the feed has no scored proposal.
+    final confidence = score;
     return Match(
       id:id,
       home:m['home']?.toString() ?? 'Home',
@@ -1406,7 +1407,7 @@ class _DetailState extends State<_Detail> {
           final marketOnly=m.proposals.every((p)=>p.contains('(market signal)'));
           return Column(children:[
             if(!marketOnly) ...[
-              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text('TOP INDICE IA · '+m.confidence.toString()+'%',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
+              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text(m.confidence>0?'INDICE IA · '+m.confidence.toString()+'/100':'INDICE IA NON DISPONIBILE',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
             ] else ...[
               Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x181F8BFF),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x4439D9FF))),child:Row(children:[const Icon(Icons.show_chart_rounded,color:Color(0xFF39D9FF),size:18),const SizedBox(width:8),const Text('SEGNALE DI MERCATO',style:TextStyle(color:Color(0xFF39D9FF),fontSize:11,fontWeight:FontWeight.w900))])),
             ],
@@ -1416,7 +1417,7 @@ class _DetailState extends State<_Detail> {
             Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:marketOnly?const Color(0x121AA8D8):const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:marketOnly?const Color(0x3039D9FF):const Color(0x3042E89A))),child:Column(children:[
               Text(m.pick,style:TextStyle(color:marketOnly?const Color(0xFF7FDBFF):const Color(0xFF42E89A),fontWeight:FontWeight.w900)),
               const SizedBox(height:7),
-              Text(marketOnly?'Indice mercato: '+m.confidence.toString()+'/100':'Probabilità stimata IA: '+m.confidence.toString()+'%',style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900)),
+              Text(marketOnly?'Indice mercato: '+m.confidence.toString()+'/100':(m.confidence>0?'Indice IA: '+m.confidence.toString()+'/100':'Indice IA non disponibile — vedi probabilità 1X2 nel pannello IA'),style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900)),
             ])),
             if(m.proposals.length>1) ...[
               const SizedBox(height:10),
