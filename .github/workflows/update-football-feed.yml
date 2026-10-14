@@ -678,7 +678,12 @@ jobs:
               item["proposalScore"] = strength
               item["preMatchStats"] = []
               if moneyline is not None:
+                  # Preserve which side the quoted moneyline belongs to. A
+                  # bare number is ambiguous and must not be fed to the score model.
                   item["preMatchStats"].append("Moneyline: " + str(moneyline))
+                  item["preMatchStats"].append("Moneyline favorito: " + str(moneyline))
+              if favorite:
+                  item["preMatchStats"].append("Mercato favorito: " + str(favorite))
               if spread is not None:
                   item["preMatchStats"].append("Handicap: " + str(spread))
               if over_under is not None:
