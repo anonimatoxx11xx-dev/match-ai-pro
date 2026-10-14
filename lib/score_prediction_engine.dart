@@ -185,12 +185,21 @@ class ScorePredictionEngine {
     final awayGames = awayForm['games'] as int;
     if (homeGames < 2 || awayGames < 2) return null;
 
-    final homeAttack = _formAverage(homeForm, 'gf');
-    final homeConceded = _formAverage(homeForm, 'ga');
-    final awayAttack = _formAverage(awayForm, 'gf');
-    final awayConceded = _formAverage(awayForm, 'ga');
-    if (homeAttack == null || homeConceded == null ||
-        awayAttack == null || awayConceded == null) return null;
+    final rawHomeAttack = _formAverage(homeForm, 'gf');
+    final rawHomeConceded = _formAverage(homeForm, 'ga');
+    final rawAwayAttack = _formAverage(awayForm, 'gf');
+    final rawAwayConceded = _formAverage(awayForm, 'ga');
+    if (rawHomeAttack == null || rawHomeConceded == null ||
+        rawAwayAttack == null || rawAwayConceded == null) return null;
+
+    // Empirical-Bayes shrinkage: a 2–3 match sample is noisy and must not
+    // dominate the forecast. Five neutral pseudo-matches pull small samples
+    // toward broad scoring priors; the observed form gains influence as n grows.
+    // These are conservative priors, not claimed league-specific statistics.
+    final homeAttack = _shrinkRate(rawHomeAttack, homeGames, 1.42);
+    final homeConceded = _shrinkRate(rawHomeConceded, homeGames, 1.28);
+    final awayAttack = _shrinkRate(rawAwayAttack, awayGames, 1.18);
+    final awayConceded = _shrinkRate(rawAwayConceded, awayGames, 1.42);
 
     var baseHome = ((homeAttack * 0.58) + (awayConceded * 0.42)) * 1.06;
     var baseAway = ((awayAttack * 0.58) + (homeConceded * 0.42)) * 0.94;
@@ -280,16 +289,18 @@ class ScorePredictionEngine {
     }
     final alternatives = _topScores(homeLambda, awayLambda, 4);
     final sampleMin = math.min(homeGames, awayGames);
-    final dataQuality = sampleMin >= 5 && (h2h['games'] as int) >= 2
-        ? 'Buona' : (sampleMin >= 3 ? 'Media' : 'Limitata');
+    final h2hGames = h2h['games'] as int;
+    final dataQuality = sampleMin >= 7 && h2hGames >= 2
+        ? 'Buona' : (sampleMin >= 5 ? 'Media' : 'Limitata');
+    final sampleReliability = (sampleMin / (sampleMin + 5.0)).clamp(0.0, 1.0);
 
     final relevantForm = pre.where((line) =>
         line.toLowerCase().startsWith('forma casa:') ||
         line.toLowerCase().startsWith('forma ospiti:')).toList();
     final signature = jsonEncode(<dynamic>[
-      // Bump this when forecast logic changes so already-saved pre-match
-      // forecasts are recalculated after an app update.
-      'score-model-v4',
+      // Bump model version so forecasts saved under the unshrunk model
+      // are recalculated on the next app update.
+      'score-model-v5-bayesian-shrinkage',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
@@ -333,6 +344,7 @@ class ScorePredictionEngine {
       'topScores': alternatives,
       'dataQuality': dataQuality,
       'sampleMin': sampleMin,
+      'sampleReliability': sampleReliability,
       'lambdaHome': homeLambda,
       'lambdaAway': awayLambda,
       'htFraction': _halfTimeFraction,
@@ -435,6 +447,13 @@ class ScorePredictionEngine {
       return (lineValue - 0.20).clamp(1.3, 4.8).toDouble();
     }
     return null;
+  }
+
+  double _shrinkRate(double observed, int games, double prior) {
+    // Five prior-equivalent matches limit overreaction to short form streaks.
+    const priorGames = 5.0;
+    final n = games.clamp(0, 100).toDouble();
+    return ((observed * n) + (prior * priorGames)) / (n + priorGames);
   }
 
   double? _formAverage(Map<String, dynamic> form, String key) {
