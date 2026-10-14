@@ -248,10 +248,18 @@ class ScorePredictionEngine {
         line.toLowerCase().startsWith('forma casa:') ||
         line.toLowerCase().startsWith('forma ospiti:')).toList();
     final signature = jsonEncode(<dynamic>[
+      // Bump this when forecast logic changes so already-saved pre-match
+      // forecasts are recalculated after an app update.
+      'score-model-v3',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
       h2h['games'], h2h['homeGF'], h2h['awayGF'],
+      _marketExpectedTotal(pre),
+      // Include all sourced market signals; otherwise stored predictions
+      // can remain frozen even after a new model starts using those signals.
+      pre.where((line) => line.toLowerCase().startsWith('moneyline:') ||
+          line.toLowerCase().startsWith('totale gol:')).toList(),
       _teamGoalBias[homeKey] ?? 0.0,
       _teamGoalBias[awayKey] ?? 0.0,
       _halfTimeFraction,
