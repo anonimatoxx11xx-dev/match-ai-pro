@@ -1159,38 +1159,6 @@ class _DetailState extends State<_Detail> {
     };
     final slug=slugs[m.league.toLowerCase().trim()]??'';
 
-    Future<void> tryEspnCurrent() async {
-      if(m.id<=0 || slug.isEmpty)return;
-      try{
-        final url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+slug+'/summary?event='+m.id.toString();
-        final res=await http.get(Uri.parse(url),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return;
-        final data=jsonDecode(res.body);
-        final box=data is Map?data['boxscore']:null;
-        final teams=box is Map?box['teams']:null;
-        if(teams is! List)return;
-        for(final team in teams){
-          if(team is! Map)continue;
-          final side=team['homeAway']?.toString(); final prefix=side=='home'?'home':'away';
-          final list=team['statistics'] is List?team['statistics'] as List:const [];
-          for(final item in list){
-            if(item is! Map)continue;
-            final key=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
-            final value=item['displayValue']??item['value'];
-            if(key.contains('shotsontarget'))out[prefix+'On']=value;
-            else if(key=='shots' || key.contains('totalshots'))out[prefix+'Shots']=value;
-            else if(key.contains('corner'))out[prefix+'Corners']=value;
-            else if(key.contains('foul'))out[prefix+'Fouls']=value;
-            else if(key.contains('throw'))out[prefix+'Throw']=value;
-            else if(key.contains('save'))out[prefix+'Saves']=value;
-            else if(key.contains('yellow'))out[prefix+'Yellow']=value;
-            else if(key.contains('red'))out[prefix+'Red']=value;
-            else if(key.contains('possession'))out[prefix+'Possession']=value;
-          }
-        }
-        if(out.isNotEmpty)source=source.isEmpty?'ESPN':source+' + ESPN';
-      }catch(_){ }
-    }
     // Do not pass a SofaScore event ID to ESPN: provider event IDs are
     // unrelated, and ESPN may return statistics for a different fixture.
     // Historical pre-match averages are loaded below; live/event stats use
