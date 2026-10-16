@@ -352,14 +352,42 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       final todayMatches=results[0] as List<Match>;
       final nextCalendar=results[1] as List<Match>;
       final historicalResults=results[2] as List<Map<String,dynamic>>;
-      // Analyse today's feed and the wider calendar for searchable forecasts.
+      // Calendar often repeats today's fixtures but omits form and odds.
+      // Add the calendar first, then merge today's richer feed into each event.
+      // Never let an empty calendar copy erase the only sourced form evidence.
       final fixtureByKey=<String,Map<String,dynamic>>{};
-      for(final fixture in <Match>[...todayMatches,...nextCalendar]){
-        final input=_predictionInput(fixture);
+      String fixtureKey(Map<String,dynamic> input){
         final id=(input['id'] as num?)?.toInt()??0;
-        final key=id>0?'id:'+id.toString():input['home'].toString()+'|'+input['away'].toString()+'|'+input['timestamp'].toString();
-        fixtureByKey[key]=input;
+        return id>0?'id:'+id.toString():input['home'].toString()+'|'+input['away'].toString()+'|'+input['timestamp'].toString();
       }
+      void addFixture(Match fixture){
+        final input=_predictionInput(fixture);
+        final key=fixtureKey(input);
+        final old=fixtureByKey[key];
+        if(old==null){fixtureByKey[key]=input;return;}
+        final merged=<String,dynamic>{...old,...input};
+        // Combine lists and maps instead of replacing richer data with empty
+        // values from the duplicate feed record.
+        for(final field in <String>['preMatchStats','proposals','sources']){
+          final values=<String>[];
+          for(final raw in <dynamic>[...(old[field] as List? ?? const <dynamic>[]),...(input[field] as List? ?? const <dynamic>[])]) {
+            final value=raw.toString().trim();
+            if(value.isNotEmpty&&!values.contains(value))values.add(value);
+          }
+          merged[field]=values;
+        }
+        merged['stats']=<String,dynamic>{
+          ...(old['stats'] is Map?Map<String,dynamic>.from(old['stats'] as Map):<String,dynamic>{}),
+          ...(input['stats'] is Map?Map<String,dynamic>.from(input['stats'] as Map):<String,dynamic>{}),
+        };
+        // Preserve actual scores when one feed has them and the duplicate has null.
+        for(final field in <String>['scoreHome','scoreAway','scoreHTHome','scoreHTAway']){
+          if(input[field]==null&&old[field]!=null)merged[field]=old[field];
+        }
+        fixtureByKey[key]=merged;
+      }
+      for(final fixture in nextCalendar)addFixture(fixture);
+      for(final fixture in todayMatches)addFixture(fixture);
       await scorePredictor.update(
         fixtures:fixtureByKey.values.toList(),
         historicalResults:historicalResults,
@@ -499,7 +527,10 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     // Only show active forecasts whose fixture is present in the currently
     // fetched feed. The learner intentionally retains old records for grading,
     // but those records must never reappear as today's upcoming predictions.
-    final activeIds=matches.map((m)=>m.id).where((id)=>id>0).toSet();
+    final activeIds=<int>{
+      ...matches.map((m)=>m.id).where((id)=>id>0),
+      ...calendarMatches.map((m)=>m.id).where((id)=>id>0),
+    };
     final nowSeconds=DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final upcoming=predictionRecords.where((p){
       final id=(p['id'] as num?)?.toInt() ?? 0;
