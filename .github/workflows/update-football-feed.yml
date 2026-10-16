@@ -387,7 +387,7 @@ jobs:
                           competitors_meta = (comp.get("league") or comp.get("competition") or event.get("league") or {})
                           if not isinstance(competitors_meta, dict):
                               competitors_meta = {}
-                          league_slug = competition_slug(comp)
+                          league_slug = competition_slug({**comp, "league": competitors_meta})
                           # ESPN's global scoreboard often omits the competition name
                           # inside competitions[0]. Never save these as generic "Football":
                           # the app correctly excludes generic competitions from team history.
