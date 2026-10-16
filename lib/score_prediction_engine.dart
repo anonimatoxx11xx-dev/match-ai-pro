@@ -271,21 +271,24 @@ class ScorePredictionEngine {
       awayLambda = bestAway.clamp(0.10, 4.0).toDouble();
     }
 
+    // One normalized joint score distribution powers every displayed market.
+    // Dixon-Coles low-score correction handles the common 0-0/1-0/0-1/1-1
+    // dependence that independent Poisson misses. It is conservative and does
+    // not claim to know a league-specific rho without enough verified data.
     final half = _bestExactScore(homeLambda * _halfTimeFraction,
         awayLambda * _halfTimeFraction);
     final full = _bestExactScore(homeLambda, awayLambda);
+    final scoreMatrix = _scoreMatrix(homeLambda, awayLambda, 8);
     final oneXtwo = _oneXtwo(homeLambda, awayLambda);
-    final homeDist = _poisson(homeLambda, 8);
-    final awayDist = _poisson(awayLambda, 8);
     var over15 = 0.0, over25 = 0.0, under35 = 0.0, bothScore = 0.0;
-    for (var h = 0; h < homeDist.length; h++) {
-      for (var a = 0; a < awayDist.length; a++) {
-        final probability = homeDist[h] * awayDist[a];
-        if (h + a >= 2) over15 += probability;
-        if (h + a >= 3) over25 += probability;
-        if (h + a <= 3) under35 += probability;
-        if (h > 0 && a > 0) bothScore += probability;
-      }
+    for (final row in scoreMatrix) {
+      final h = row['home'] as int;
+      final a = row['away'] as int;
+      final probability = row['probability'] as double;
+      if (h + a >= 2) over15 += probability;
+      if (h + a >= 3) over25 += probability;
+      if (h + a <= 3) under35 += probability;
+      if (h > 0 && a > 0) bothScore += probability;
     }
     final alternatives = _topScores(homeLambda, awayLambda, 4);
     final sampleMin = math.min(homeGames, awayGames);
@@ -300,7 +303,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v5-bayesian-shrinkage',
+      'score-model-v6-dixon-coles-joint',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
@@ -581,26 +584,64 @@ class ScorePredictionEngine {
     return null;
   }
 
-  Map<String, dynamic> _bestExactScore(double homeLambda, double awayLambda) {
-    final homeP = _poisson(homeLambda, 7);
-    final awayP = _poisson(awayLambda, 7);
-    var bestHome = 0;
-    var bestAway = 0;
-    var bestProbability = 0.0;
-    for (var h = 0; h < homeP.length; h++) {
-      for (var a = 0; a < awayP.length; a++) {
-        final probability = homeP[h] * awayP[a];
-        if (probability > bestProbability) {
-          bestProbability = probability;
-          bestHome = h;
-          bestAway = a;
+  List<Map<String, dynamic>> _scoreMatrix(
+      double homeLambda, double awayLambda, int maxGoals) {
+    final home = _poisson(homeLambda, maxGoals);
+    final away = _poisson(awayLambda, maxGoals);
+    // Conservative Dixon-Coles correction for low-score dependence.
+    const rho = -0.08;
+    final rows = <Map<String, dynamic>>[];
+    var total = 0.0;
+    for (var h = 0; h < home.length; h++) {
+      for (var a = 0; a < away.length; a++) {
+        var tau = 1.0;
+        if (h == 0 && a == 0) {
+          tau = 1.0 - homeLambda * awayLambda * rho;
+        } else if (h == 0 && a == 1) {
+          tau = 1.0 + homeLambda * rho;
+        } else if (h == 1 && a == 0) {
+          tau = 1.0 + awayLambda * rho;
+        } else if (h == 1 && a == 1) {
+          tau = 1.0 - rho;
         }
+        final probability = home[h] * away[a] * math.max(0.01, tau);
+        rows.add(<String, dynamic>{
+          'home': h,
+          'away': a,
+          'probability': probability,
+        });
+        total += probability;
       }
     }
+    if (total <= 0) return rows;
+    for (final row in rows) {
+      row['probability'] = (row['probability'] as double) / total;
+    }
+    return rows;
+  }
+
+  Map<String, dynamic> _bestExactScore(double homeLambda, double awayLambda) {
+    final scores = _scoreMatrix(homeLambda, awayLambda, 8);
+    scores.sort((a, b) => (b['probability'] as double)
+        .compareTo(a['probability'] as double));
+    final best = scores.first;
     return <String, dynamic>{
-      'home': bestHome, 'away': bestAway,
-      'probability': bestProbability * 100.0,
+      'home': best['home'],
+      'away': best['away'],
+      'probability': (best['probability'] as double) * 100.0,
     };
+  }
+
+  List<Map<String, dynamic>> _topScores(
+      double homeLambda, double awayLambda, int count) {
+    final scores = _scoreMatrix(homeLambda, awayLambda, 8);
+    scores.sort((a, b) => (b['probability'] as double)
+        .compareTo(a['probability'] as double));
+    return scores.take(count).map((score) => <String, dynamic>{
+      'home': score['home'],
+      'away': score['away'],
+      'probability': (score['probability'] as double) * 100.0,
+    }).toList();
   }
 
   List<double> _poisson(double lambda, int maxGoals) {
@@ -631,19 +672,18 @@ class ScorePredictionEngine {
   }
 
   Map<String, double> _oneXtwo(double homeLambda, double awayLambda) {
-    final homeP = _poisson(homeLambda, 8);
-    final awayP = _poisson(awayLambda, 8);
+    final matrix = _scoreMatrix(homeLambda, awayLambda, 8);
     var home = 0.0, draw = 0.0, away = 0.0;
-    for (var h = 0; h < homeP.length; h++) {
-      for (var a = 0; a < awayP.length; a++) {
-        final p = homeP[h] * awayP[a];
-        if (h > a) {
-          home += p;
-        } else if (h == a) {
-          draw += p;
-        } else {
-          away += p;
-        }
+    for (final row in matrix) {
+      final h = row['home'] as int;
+      final a = row['away'] as int;
+      final probability = row['probability'] as double;
+      if (h > a) {
+        home += probability;
+      } else if (h == a) {
+        draw += probability;
+      } else {
+        away += probability;
       }
     }
     final total = home + draw + away;
