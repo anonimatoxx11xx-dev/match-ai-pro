@@ -333,6 +333,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   bool _loadInProgress=false;
   List<Map<String,dynamic>> predictionRecords=[];
   String predictionFilter='PROSSIME';
+  String _aiSearchQuery='';
+  String _aiSearchStatus='TUTTE';
   late final AnimationController pulse=AnimationController(vsync:this,duration:const Duration(seconds:3))..repeat(reverse:true);
   List<Match> matches=[]; List<Match> calendarMatches=[]; bool loading=true; bool calendarLoading=true; String? error; int tab=0; Timer? refreshTimer;
   @override void initState(){super.initState();load(); refreshTimer=Timer.periodic(const Duration(minutes:1), (_) => load());}
@@ -346,8 +348,16 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       final todayMatches=results[0] as List<Match>;
       final nextCalendar=results[1] as List<Match>;
       final historicalResults=results[2] as List<Map<String,dynamic>>;
+      // Analyse today's feed and the wider calendar for searchable forecasts.
+      final fixtureByKey=<String,Map<String,dynamic>>{};
+      for(final fixture in <Match>[...todayMatches,...nextCalendar]){
+        final input=_predictionInput(fixture);
+        final id=(input['id'] as num?)?.toInt()??0;
+        final key=id>0?'id:'+id.toString():input['home'].toString()+'|'+input['away'].toString()+'|'+input['timestamp'].toString();
+        fixtureByKey[key]=input;
+      }
       await scorePredictor.update(
-        fixtures:todayMatches.map(_predictionInput).toList(),
+        fixtures:fixtureByKey.values.toList(),
         historicalResults:historicalResults,
       );
       if(!mounted)return;
@@ -785,6 +795,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     final aiCoverage=total==0?0.0:withAi/total;
     return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
       _title('AI CENTER',upcomingFeed?'Analisi prossime partite':'Analisi e qualità dati'),
+      _matchSearchWidget(),
       Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Row(children:[const Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),const SizedBox(width:10),const Expanded(child:Text('Motore decisionale multi-fonte',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900)))]),
         const SizedBox(height:6),
@@ -830,6 +841,106 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         ...calendarMatches.take(8).map(_calendarCard),
       ],
     ]);
+  }
+
+  Widget _matchSearchWidget(){
+    final query=_aiSearchQuery.trim().toLowerCase();
+    final byId=<String,Match>{};
+    for(final match in <Match>[...matches,...calendarMatches]){
+      final key=match.id>0?'id:'+match.id.toString():match.home.toLowerCase()+'|'+match.away.toLowerCase()+'|'+match.time;
+      byId.putIfAbsent(key,()=>match);
+    }
+    final all=byId.values.toList()..sort((a,b)=>(a.timestamp??0).compareTo(b.timestamp??0));
+    final filtered=all.where((m){
+      final haystack=(m.home+' '+m.away+' '+m.league+' '+m.time).toLowerCase();
+      final queryMatch=query.isEmpty||haystack.contains(query);
+      final statusMatch=switch(_aiSearchStatus){
+        'PROSSIME'=>m.status=='NS',
+        'LIVE'=>m.status=='LIVE',
+        'FINITE'=>m.status=='FT'||m.status=='FINISHED',
+        _=>true,
+      };
+      return queryMatch&&statusMatch;
+    }).take(20).toList();
+    Map<String,dynamic>? predictionFor(Match m){
+      for(final p in predictionRecords){
+        if(m.id>0 && (p['id'] as num?)?.toInt()==m.id && p['gradedFT']!=true) return p;
+      }
+      return null;
+    }
+    return Container(
+      margin:const EdgeInsets.only(bottom:12),
+      padding:const EdgeInsets.all(14),
+      decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0x558B7CFF))),
+      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Row(children:[
+          const Icon(Icons.travel_explore_rounded,color:Color(0xFF9D91FF),size:23),
+          const SizedBox(width:8),
+          const Expanded(child:Text('CERCA PARTITA · AI SCOUT',style:TextStyle(fontSize:13,fontWeight:FontWeight.w900,letterSpacing:.4))),
+          Text(all.length.toString(),style:const TextStyle(color:Color(0xFF9299AD),fontSize:10,fontWeight:FontWeight.w800)),
+        ]),
+        const SizedBox(height:10),
+        TextField(
+          onChanged:(value)=>setState(()=>_aiSearchQuery=value),
+          textInputAction:TextInputAction.search,
+          decoration:InputDecoration(
+            hintText:'Squadra, avversaria o campionato…',
+            hintStyle:const TextStyle(color:Color(0xFF747D91),fontSize:12),
+            prefixIcon:const Icon(Icons.search_rounded,color:Color(0xFFA9A0FF)),
+            suffixIcon:query.isEmpty?null:IconButton(tooltip:'Cancella ricerca',onPressed:()=>setState(()=>_aiSearchQuery=''),icon:const Icon(Icons.close_rounded,size:18)),
+            filled:true,fillColor:const Color(0xFF0B0F1A),
+            contentPadding:const EdgeInsets.symmetric(horizontal:12,vertical:12),
+            border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none),
+          ),
+        ),
+        const SizedBox(height:9),
+        Wrap(spacing:6,runSpacing:6,children:[
+          for(final item in <String>['TUTTE','PROSSIME','LIVE','FINITE'])
+            ChoiceChip(
+              label:Text(item,style:const TextStyle(fontSize:9,fontWeight:FontWeight.w800)),
+              selected:_aiSearchStatus==item,
+              onSelected:(_)=>setState(()=>_aiSearchStatus=item),
+              selectedColor:const Color(0xFF38305F),backgroundColor:const Color(0xFF171D2B),
+              side:BorderSide(color:_aiSearchStatus==item?const Color(0xFF9D91FF):Colors.white10),
+              visualDensity:VisualDensity.compact,
+            ),
+        ]),
+        if(query.isNotEmpty||_aiSearchStatus!='TUTTE')...[
+          const SizedBox(height:10),
+          Text(filtered.length.toString()+' RISULTATI · PRONOSTICO SUI DATI DISPONIBILI',style:const TextStyle(color:Color(0xFF9D91FF),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.4)),
+          if(filtered.isEmpty) const Padding(padding:EdgeInsets.only(top:12),child:Text('Nessuna partita trovata nel feed corrente e nel calendario. Aggiorna i dati oppure prova un altro nome.',style:TextStyle(color:Color(0xFF9299AD),fontSize:11))),
+          ...filtered.map((m){
+            final p=predictionFor(m);
+            final timestamp=m.timestamp;
+            final kick=timestamp==null?'':DateTime.fromMillisecondsSinceEpoch(timestamp*1000).toLocal().toString().substring(0,16);
+            final status=m.status=='LIVE'?'LIVE':(m.status=='FT'||m.status=='FINISHED'?'FINITA':m.time);
+            return Container(
+              margin:const EdgeInsets.only(top:8),padding:const EdgeInsets.all(11),
+              decoration:BoxDecoration(color:const Color(0xFF0B0F1A),borderRadius:BorderRadius.circular(13),border:Border.all(color:Colors.white10)),
+              child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Row(children:[
+                  Expanded(child:Text(m.league.toUpperCase(),style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900))),
+                  Text(status,style:const TextStyle(color:Color(0xFFFFC857),fontSize:9,fontWeight:FontWeight.w900)),
+                ]),
+                const SizedBox(height:5),
+                Text(m.home+'  vs  '+m.away,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w900)),
+                if(kick.isNotEmpty)Padding(padding:const EdgeInsets.only(top:3),child:Text(kick,style:const TextStyle(color:Color(0xFF7E879B),fontSize:9))),
+                if(p!=null)...[
+                  const Divider(height:14,color:Colors.white10),
+                  Row(children:[
+                    Expanded(child:Text('IA · '+(p['predFTHome']??'?').toString()+'-'+(p['predFTAway']??'?').toString(),style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))),
+                    Text('1 '+_forecastPercent(p['probHome'])+'  X '+_forecastPercent(p['probDraw'])+'  2 '+_forecastPercent(p['probAway']),style:const TextStyle(color:Color(0xFFB7BED0),fontSize:9,fontWeight:FontWeight.w800)),
+                  ]),
+                  Padding(padding:const EdgeInsets.only(top:4),child:Text('1° tempo '+(p['predHTHome']??'?').toString()+'-'+(p['predHTAway']??'?').toString()+' · campione '+(p['sampleMin']??'N/D').toString()+' · qualità '+(p['dataQuality']??'N/D').toString(),style:const TextStyle(color:Color(0xFF9299AD),fontSize:9))),
+                ]else
+                  const Padding(padding:EdgeInsets.only(top:5),child:Text('Pronostico non disponibile: dati storici insufficienti o partita non ancora analizzata.',style:TextStyle(color:Color(0xFF9299AD),fontSize:9))),
+              ]),
+            );
+          }),
+        ]else
+          const Padding(padding:EdgeInsets.only(top:9),child:Text('Cerca una squadra o un campionato per consultare le partite e il pronostico IA, quando i dati storici sono sufficienti.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35))),
+      ]),
+    );
   }
 
   Widget _qualityBadge(String label,int value,int? total,Color color)=>Container(
