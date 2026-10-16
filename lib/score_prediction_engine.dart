@@ -171,15 +171,19 @@ class ScorePredictionEngine {
     final awayHistory = _recentTeamForm(awayName, kickOff, historicalResults);
     final parsedHome = _parseForm(pre, 'casa');
     final parsedAway = _parseForm(pre, 'ospiti');
-    // Prefer the feed's explicitly sourced recent-form summary when it has
-    // at least three games. Name-based history matching is only a fallback:
-    // fuzzy aliases can otherwise attach a similarly named club's results.
-    final homeForm = parsedHome != null && (parsedHome['games'] as int) >= 3
-        ? parsedHome
-        : (homeHistory ?? parsedHome);
-    final awayForm = parsedAway != null && (parsedAway['games'] as int) >= 3
-        ? parsedAway
-        : (awayHistory ?? parsedAway);
+    // Prefer a larger verified score history when available. A three-match
+    // feed summary is useful as fallback, but must not hide four-to-six actual
+    // results that provide a better estimate of scoring strength.
+    final homeHistoryGames = _integer(homeHistory?['games']) ?? 0;
+    final awayHistoryGames = _integer(awayHistory?['games']) ?? 0;
+    final homeForm = homeHistory != null && homeHistoryGames >= 4
+        ? homeHistory
+        : (parsedHome != null && (parsedHome['games'] as int) >= 3
+            ? parsedHome : (homeHistory ?? parsedHome));
+    final awayForm = awayHistory != null && awayHistoryGames >= 4
+        ? awayHistory
+        : (parsedAway != null && (parsedAway['games'] as int) >= 3
+            ? parsedAway : (awayHistory ?? parsedAway));
     if (homeForm == null || awayForm == null) return null;
     final homeGames = homeForm['games'] as int;
     final awayGames = awayForm['games'] as int;
@@ -303,7 +307,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v6-dixon-coles-joint',
+      'score-model-v7-expanded-form-calibration',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
@@ -453,8 +457,9 @@ class ScorePredictionEngine {
   }
 
   double _shrinkRate(double observed, int games, double prior) {
-    // Five prior-equivalent matches limit overreaction to short form streaks.
-    const priorGames = 5.0;
+    // Two prior-equivalent matches temper short samples without flattening
+    // every team's attack and defence toward nearly identical averages.
+    const priorGames = 2.0;
     final n = games.clamp(0, 100).toDouble();
     return ((observed * n) + (prior * priorGames)) / (n + priorGames);
   }
@@ -589,7 +594,7 @@ class ScorePredictionEngine {
     final home = _poisson(homeLambda, maxGoals);
     final away = _poisson(awayLambda, maxGoals);
     // Conservative Dixon-Coles correction for low-score dependence.
-    const rho = -0.08;
+    const rho = -0.02;
     final rows = <Map<String, dynamic>>[];
     var total = 0.0;
     for (var h = 0; h < home.length; h++) {
