@@ -604,7 +604,7 @@ class ScorePredictionEngine {
         } else if (h == 1 && a == 1) {
           tau = 1.0 - rho;
         }
-        final probability = home[h] * away[a] * math.max(0.01, tau);
+        final probability = (home[h] * away[a] * math.max(0.01, tau)).toDouble();
         rows.add(<String, dynamic>{
           'home': h,
           'away': a,
