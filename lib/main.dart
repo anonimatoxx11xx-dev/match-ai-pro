@@ -1145,7 +1145,7 @@ class _DetailState extends State<_Detail> {
   Future<Map<String,dynamic>> _fetchH2HAndPrediction(Match m) async {
     final h2h=<Map<String,dynamic>>[];
     final ai=<String,dynamic>{};
-    final homeId=m.homeTeamId, awayId=m.awayTeamId;
+    int? homeId, awayId;
     if(m.status!='NS' || m.id<=0)return {'h2h':h2h,'aiContext':ai,'source':''};
 
     double? n(dynamic v){
@@ -1154,6 +1154,65 @@ class _DetailState extends State<_Detail> {
       final d=double.tryParse(s??''); if(d!=null)return d;
       final x=RegExp(r'-?\d+(?:\.\d+)?').firstMatch(s??''); return x==null?null:double.tryParse(x.group(0)!);
     }
+
+    String normalizeTeam(String value)=>value.toLowerCase()
+      .replaceAll(RegExp(r'\b(football club|soccer club|fc|afc|cf|sc|club|the)\b'),' ')
+      .replaceAll(RegExp(r'[^a-z0-9]'),'');
+    Future<int?> findSofaTeamId(String name) async {
+      try{
+        final response=await http.get(
+          Uri.parse('https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name)),
+          headers:const {'Accept':'application/json'},
+        ).timeout(const Duration(seconds:8));
+        if(response.statusCode!=200)return null;
+        final payload=jsonDecode(response.body);
+        final results=payload is Map?payload['results']:null;
+        if(results is! List)return null;
+        final target=normalizeTeam(name);
+        final candidates=<int>[];
+        for(final row in results.whereType<Map>()){
+          final entity=row['entity'];
+          if(entity is! Map||entity['id']==null)continue;
+          final type=(row['type']??entity['type']??'').toString().toLowerCase();
+          final sport=entity['sport'];
+          final slug=sport is Map?(sport['slug']??'').toString().toLowerCase():'';
+          if(type!='team'&&type!='teams'&&slug!='football')continue;
+          final candidate=normalizeTeam((entity['name']??'').toString());
+          final id=int.tryParse(entity['id'].toString());
+          if(id==null||candidate.isEmpty)continue;
+          if(candidate==target)return id;
+          if(target.length>=6&&candidate.length>=6&&
+              (candidate.contains(target)||target.contains(candidate)))candidates.add(id);
+        }
+        return candidates.length==1?candidates.single:null;
+      }catch(_){return null;}
+    }
+    Map<String,dynamic>? parseFeedForm(String side){
+      final prefix=side=='home'?'Forma casa:':'Forma ospiti:';
+      for(final line in m.preMatchStats){
+        if(!line.toLowerCase().startsWith(prefix.toLowerCase()))continue;
+        final match=RegExp(
+          r'Forma\s+(?:casa|ospiti):\s*(\d+)\s*V\s+(\d+)\s*N\s+(\d+)\s*P\s*[·•]\s*(\d+)\s*-\s*(\d+)\s*gol(?:\s*[·•]\s*(\d+)\s*/\s*(\d+)\s*pt)?',
+          caseSensitive:false,
+        ).firstMatch(line);
+        if(match==null)continue;
+        final w=int.tryParse(match.group(1)??'')??0;
+        final d=int.tryParse(match.group(2)??'')??0;
+        final l=int.tryParse(match.group(3)??'')??0;
+        final gf=int.tryParse(match.group(4)??'')??0;
+        final ga=int.tryParse(match.group(5)??'')??0;
+        final games=w+d+l;
+        if(games==0)return null;
+        return <String,dynamic>{
+          'w':w,'d':d,'l':l,'gf':gf,'ga':ga,'games':games,
+          'rate':(w*3+d)/(games*3.0),
+          'source':'ESPN · riepilogo forma pre-match',
+        };
+      }
+      return null;
+    }
+    homeId=await findSofaTeamId(m.home);
+    awayId=await findSofaTeamId(m.away);
 
     Future<List<Map<String,dynamic>>> recent(int? id) async {
       if(id==null)return <Map<String,dynamic>>[];
@@ -1170,43 +1229,55 @@ class _DetailState extends State<_Detail> {
     }
 
     final forms=await Future.wait([recent(homeId),recent(awayId)]);
-    Map<String,dynamic> formFor(int id,List<Map<String,dynamic>> events){
+    Map<String,dynamic> formFor(int id,List<Map<String,dynamic>> events,String side){
       var w=0,d=0,l=0,gf=0,ga=0;
       for(final e in events){
-        final ht=e['homeTeam']; final hid=ht is Map?int.tryParse(ht['id']?.toString()??''):null; final ih=hid==id;
-        final hs=n(e['homeScore'] is Map?e['homeScore']['current']:e['homeScore'])?.round()??0;
-        final as=n(e['awayScore'] is Map?e['awayScore']['current']:e['awayScore'])?.round()??0;
+        final status=e['status'];
+        final type=status is Map?(status['type']??'').toString().toLowerCase():'';
+        if(type!='finished'&&type!='ended'&&type!='afterextra'&&type!='afterpenalties')continue;
+        final ht=e['homeTeam'];
+        final hid=ht is Map?int.tryParse(ht['id']?.toString()??''):null;
+        final ih=hid==id;
+        final homeScore=e['homeScore'] is Map?e['homeScore']['current']:e['homeScore'];
+        final awayScore=e['awayScore'] is Map?e['awayScore']['current']:e['awayScore'];
+        final hs=n(homeScore)?.round(),as=n(awayScore)?.round();
+        if(hs==null||as==null)continue;
         gf+=ih?hs:as; ga+=ih?as:hs;
         if((ih&&hs>as)||(!ih&&as>hs))w++; else if(hs==as)d++; else l++;
       }
       final g=w+d+l, points=w*3+d;
-      return {'w':w,'d':d,'l':l,'gf':gf,'ga':ga,'games':g,'rate':g==0?0.0:points/(g*3.0)};
+      if(g>=2)return {'w':w,'d':d,'l':l,'gf':gf,'ga':ga,'games':g,'rate':points/(g*3.0),'source':'SofaScore · risultati squadra'};
+      return parseFeedForm(side)??{'w':0,'d':0,'l':0,'gf':0,'ga':0,'games':0,'rate':0.0,'source':'Nessun campione verificabile'};
     }
-    final hf=formFor(homeId??-1,forms[0]); final af=formFor(awayId??-1,forms[1]);
+    final hf=formFor(homeId??-1,forms[0],'home');
+    final af=formFor(awayId??-1,forms[1],'away');
 
-    try{
-      final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+m.id.toString()+'/h2h/events'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
-      if(res.statusCode==200){
-        final data=jsonDecode(res.body); final events=data is Map?data['events']:null;
-        if(events is List){
-          for(final e in events.whereType<Map>().take(6)){
-            final hs=n(e['homeScore'] is Map?e['homeScore']['current']:e['homeScore'])?.round();
-            final as=n(e['awayScore'] is Map?e['awayScore']['current']:e['awayScore'])?.round();
-            if(hs==null||as==null)continue;
-            final ht=e['homeTeam'], at=e['awayTeam'];
-            final date=n(e['startTimestamp'])==null?'':DateTime.fromMillisecondsSinceEpoch(n(e['startTimestamp'])!.toInt()*1000).toLocal().toIso8601String().split('T').first;
-            h2h.add({'home':ht is Map?ht['name']?.toString()??'Home':'Home','away':at is Map?at['name']?.toString()??'Away':'Away','hs':hs,'as':as,'date':date,'winner':hs>as?'home':(as>hs?'away':'draw')});
-          }
-        }
-      }
-    }catch(_){}
+    // Event IDs are provider-specific. Do not call the SofaScore H2H endpoint
+    // with the ESPN fixture ID; intersect each team's SofaScore event history.
+    final awayEventIds=forms[1].map((e)=>int.tryParse(e['id']?.toString()??'')).whereType<int>().toSet();
+    for(final event in forms[0]){
+      final eventId=int.tryParse(event['id']?.toString()??'');
+      if(eventId==null||!awayEventIds.contains(eventId))continue;
+      final status=event['status'];
+      final type=status is Map?(status['type']??'').toString().toLowerCase():'';
+      if(type!='finished'&&type!='ended'&&type!='afterextra'&&type!='afterpenalties')continue;
+      final homeScore=event['homeScore'] is Map?event['homeScore']['current']:event['homeScore'];
+      final awayScore=event['awayScore'] is Map?event['awayScore']['current']:event['awayScore'];
+      final hs=n(homeScore)?.round(),as=n(awayScore)?.round();
+      final ht=event['homeTeam'],at=event['awayTeam'];
+      if(hs==null||as==null||ht is! Map||at is! Map)continue;
+      final homeName=(ht['name']??'').toString(),awayName=(at['name']??'').toString();
+      final start=n(event['startTimestamp']);
+      final date=start==null?'':DateTime.fromMillisecondsSinceEpoch(start.toInt()*1000).toLocal().toIso8601String().split('T').first;
+      h2h.add({'home':homeName,'away':awayName,'hs':hs,'as':as,'date':date,'winner':hs>as?'home':(as>hs?'away':'draw')});
+    }
 
     final homeGames=hf['games'] as int;
     final awayGames=af['games'] as int;
     if(homeGames<2||awayGames<2){
-      // No invented baseline: an AI winner card is hidden until both teams
-      // have a minimal verified recent-result sample.
-      return {'h2h':h2h,'aiContext':ai,'source':h2h.isEmpty?'':'SofaScore · H2H'};
+      // No invented baseline: hide the probability panel until both teams have
+      // at least two sourced recent matches or a feed form summary.
+      return {'h2h':h2h,'aiContext':ai,'source':(hf['source']??'').toString()+' · '+(af['source']??'').toString()};
     }
 
     double? stat(String key)=>n(m.stats[key]);
@@ -1296,7 +1367,8 @@ class _DetailState extends State<_Detail> {
       'expectedHomeGoals':homeLambda,'expectedAwayGoals':awayLambda,
       'model':'Poisson · gol recenti fatti/subiti'+(h2hUsed>=3?' + H2H attenuato':''),
     });
-    return {'h2h':h2h,'aiContext':ai,'source':'SofaScore · forma ultime 6'+(h2hUsed>0?' + H2H':'')};
+    final formSource=((hf['source']??'').toString().isEmpty?'forma non identificata':hf['source'].toString())+' + '+((af['source']??'').toString().isEmpty?'forma non identificata':af['source'].toString());
+    return {'h2h':h2h,'aiContext':ai,'source':formSource+(h2hUsed>0?' + H2H verificato':'')};
   }
 
   Future<Map<String,dynamic>> _fetchStats(Match m) async {
@@ -1377,7 +1449,9 @@ class _DetailState extends State<_Detail> {
         if(out.isNotEmpty)source=source.isEmpty?'SofaScore':source+' + SofaScore';
       }catch(_){ }
     }
-    if(m.status!='NS')await trySofaCurrent();
+    // Fixture IDs are provider-specific. Only query SofaScore live statistics
+    // when the selected event actually came from SofaScore.
+    if(m.status!='NS' && m.sources.any((source)=>source.toLowerCase().contains('sofascore')))await trySofaCurrent();
     if(m.status!='NS')return {'stats':out,'source':source};
 
     final historical=await _fetchHistoricalMatchStats(m);
@@ -1385,6 +1459,31 @@ class _DetailState extends State<_Detail> {
     if(h is Map){
       final hm=Map<String,dynamic>.from(h);
       hm.forEach((key,value){ if(!out.containsKey(key)) out[key]=value; });
+    }
+    // Always surface sourced goal-form averages when the provider does not
+    // expose detailed shot/corner statistics. Never label these as live stats.
+    Map<String,dynamic>? parseGoalForm(String side){
+      final prefix=side=='home'?'Forma casa:':'Forma ospiti:';
+      for(final line in m.preMatchStats){
+        if(!line.toLowerCase().startsWith(prefix.toLowerCase()))continue;
+        final match=RegExp(r'Forma\s+(?:casa|ospiti):\s*(\d+)\s*V\s+(\d+)\s*N\s+(\d+)\s*P\s*[·•]\s*(\d+)\s*-\s*(\d+)\s*gol',caseSensitive:false).firstMatch(line);
+        if(match==null)continue;
+        final games=(int.tryParse(match.group(1)??'')??0)+(int.tryParse(match.group(2)??'')??0)+(int.tryParse(match.group(3)??'')??0);
+        if(games<=0)continue;
+        return {'gf':(int.tryParse(match.group(4)??'')??0)/games,'ga':(int.tryParse(match.group(5)??'')??0)/games,'games':games};
+      }
+      return null;
+    }
+    if(m.status=='NS'){
+      final hf=parseGoalForm('home'),af=parseGoalForm('away');
+      if(hf!=null&&af!=null){
+        out.putIfAbsent('homeGoals',()=>hf['gf']);
+        out.putIfAbsent('homeConceded',()=>hf['ga']);
+        out.putIfAbsent('awayGoals',()=>af['gf']);
+        out.putIfAbsent('awayConceded',()=>af['ga']);
+        if(source.isEmpty)source='Feed pre-match · medie gol da forma recente';
+        else if(!source.contains('Feed pre-match'))source+=' + Feed pre-match · medie gol da forma recente';
+      }
     }
     if(out.isNotEmpty){
       final hs=historical['source']?.toString()??'';
@@ -1551,7 +1650,7 @@ class _DetailState extends State<_Detail> {
           final marketOnly=m.proposals.every((p)=>p.contains('(market signal)'));
           return Column(children:[
             if(!marketOnly) ...[
-              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text(m.confidence>0?'INDICE IA · '+m.confidence.toString()+'/100':'INDICE IA NON DISPONIBILE',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:11,fontWeight:FontWeight.w900))])),
+              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text(m.confidence>0?'PUNTEGGIO SEGNALE FEED · '+m.confidence.toString()+'/100':'PUNTEGGIO FEED NON DISPONIBILE',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:10,fontWeight:FontWeight.w900))])),
             ] else ...[
               Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x181F8BFF),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x4439D9FF))),child:Row(children:[const Icon(Icons.show_chart_rounded,color:Color(0xFF39D9FF),size:18),const SizedBox(width:8),const Text('SEGNALE DI MERCATO',style:TextStyle(color:Color(0xFF39D9FF),fontSize:11,fontWeight:FontWeight.w900))])),
             ],
@@ -1561,7 +1660,7 @@ class _DetailState extends State<_Detail> {
             Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:marketOnly?const Color(0x121AA8D8):const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:marketOnly?const Color(0x3039D9FF):const Color(0x3042E89A))),child:Column(children:[
               Text(m.pick,style:TextStyle(color:marketOnly?const Color(0xFF7FDBFF):const Color(0xFF42E89A),fontWeight:FontWeight.w900)),
               const SizedBox(height:7),
-              Text(marketOnly?'Indice mercato: '+m.confidence.toString()+'/100':(m.confidence>0?'Indice IA: '+m.confidence.toString()+'/100':'Indice IA non disponibile — vedi probabilità 1X2 nel pannello IA'),style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900)),
+              Text(marketOnly?'Punteggio segnale mercato: '+m.confidence.toString()+'/100':(m.confidence>0?'Punteggio proposta fonte: '+m.confidence.toString()+'/100':'Punteggio fonte non disponibile — usa le probabilità 1X2 del motore IA'),style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900)),
             ])),
             if(m.proposals.length>1) ...[
               const SizedBox(height:10),
@@ -1593,7 +1692,7 @@ class _DetailState extends State<_Detail> {
     final ar=aiContext['awayRecent'] is Map?Map<String,dynamic>.from(aiContext['awayRecent'] as Map):<String,dynamic>{};
     Widget p(String l,String v,Color c)=>Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:9),decoration:BoxDecoration(color:c.withValues(alpha:.08),borderRadius:BorderRadius.circular(12),border:Border.all(color:c.withValues(alpha:.18))),child:Column(children:[Text(v+'%',style:TextStyle(color:c,fontSize:16,fontWeight:FontWeight.w900)),Text(l,style:const TextStyle(color:Color(0xFF6F778A),fontSize:7,fontWeight:FontWeight.w900))])));
     return Container(margin:const EdgeInsets.only(top:14),padding:const EdgeInsets.all(15),decoration:BoxDecoration(borderRadius:BorderRadius.circular(22),gradient:const LinearGradient(colors:[Color(0xFF18152C),Color(0xFF0F1622)]),border:Border.all(color:const Color(0x3342E89A))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('AI PREDICTION ENGINE',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1))),Text(conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))]),
+      Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('PROBABILITÀ MODELLO 1X2',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.6))),Text(conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))]),
       const SizedBox(height:8),Text(pick,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const SizedBox(height:10),
       Row(children:[p('CASA',hp,const Color(0xFF39D9FF)),const SizedBox(width:6),p('X',dp,const Color(0xFFFFC857)),const SizedBox(width:6),p('OSPITE',ap,const Color(0xFFA9A0FF))]),
       if((widget.m.aiHomeProb+widget.m.aiDrawProb+widget.m.aiAwayProb)>0)Padding(
@@ -1639,6 +1738,8 @@ class _DetailState extends State<_Detail> {
 
   List<Widget> _statGrid(Map<String,dynamic> s,{required bool preMatch}){
     final defs=<String,List<String>>{
+      'GOL FATTI MEDI':['homeGoals','awayGoals'],
+      'GOL SUBITI MEDI':['homeConceded','awayConceded'],
       'TIRI':['homeShots','awayShots'],
       'TIRI IN PORTA':['homeOn','awayOn'],
       'ANGOLI':['homeCorners','awayCorners'],
@@ -1654,6 +1755,7 @@ class _DetailState extends State<_Detail> {
       'POSSESSO':['homePossession','awayPossession']
     };
     const categoryByStat=<String,String>{
+      'GOL FATTI MEDI':'ATTACCO','GOL SUBITI MEDI':'DIFESA',
       'TIRI':'ATTACCO','TIRI IN PORTA':'ATTACCO','TIRI BLOCCATI':'ATTACCO',
       'ANGOLI':'CREAZIONE','POSSESSO':'CREAZIONE',
       'PARATE':'DIFESA','CONTRASTI':'DIFESA','SPAZZATE':'DIFESA','FUORIGIOCO':'DIFESA',
