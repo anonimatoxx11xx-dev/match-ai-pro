@@ -384,16 +384,44 @@ jobs:
                               continue
                           event_time = parse_provider_timestamp(event.get("date"))
                           event_id = as_int(event.get("id"))
-                          competitors_meta = (comp.get("league") or comp.get("competition") or {})
+                          competitors_meta = (comp.get("league") or comp.get("competition") or event.get("league") or {})
                           if not isinstance(competitors_meta, dict):
                               competitors_meta = {}
                           league_slug = competition_slug(comp)
+                          # ESPN's global scoreboard often omits the competition name
+                          # inside competitions[0]. Never save these as generic "Football":
+                          # the app correctly excludes generic competitions from team history.
+                          league_name = str(competitors_meta.get("name") or "").strip()
+                          if not league_name or league_name.lower() in {"football", "soccer", "calcio"}:
+                              league_name = {
+                                  "eng.1": "Premier League",
+                                  "eng.2": "EFL Championship",
+                                  "eng.3": "League One",
+                                  "eng.4": "League Two",
+                                  "eng.5": "National League",
+                                  "esp.1": "La Liga",
+                                  "esp.2": "La Liga 2",
+                                  "ita.1": "Serie A",
+                                  "ita.2": "Serie B",
+                                  "ger.1": "Bundesliga",
+                                  "ger.2": "2. Bundesliga",
+                                  "fra.1": "Ligue 1",
+                                  "fra.2": "Ligue 2",
+                                  "ned.1": "Eredivisie",
+                                  "tur.1": "Turkish Super Lig",
+                                  "uefa.champions": "UEFA Champions League",
+                                  "uefa.europa": "UEFA Europa League",
+                                  "uefa.europa.conf": "UEFA Conference League",
+                              }.get(league_slug, "")
+                          if not league_name:
+                              season_name = (event.get("season") or {}).get("displayName") if isinstance(event.get("season"), dict) else ""
+                              league_name = str(season_name or "Football")
                           if event_id is not None:
                               HISTORICAL_RESULTS[str(event_id)] = {
                                   "id": event_id,
                                   "home": hn,
                                   "away": an,
-                                  "league": str(competitors_meta.get("name") or "Football") if isinstance(competitors_meta, dict) else "Football",
+                                  "league": league_name,
                                   "time": datetime.fromtimestamp(event_time, TZ).strftime("%H:%M") if event_time else "--:--",
                                   "timestamp": event_time,
                                   "status": "FT",
@@ -412,7 +440,7 @@ jobs:
                                   "name": team_name,
                                   "eventId": as_int(event.get("id")),
                                   "leagueSlug": league_slug,
-                                  "leagueName": str(competitors_meta.get("name") or "Football"),
+                                  "leagueName": league_name,
                                   "home": hn,
                                   "away": an,
                                   "gf": gf,
