@@ -49,6 +49,7 @@ class Match {
   final int aiHomeProb, aiDrawProb, aiAwayProb;
   final String aiPick;
   final int? homeTeamId, awayTeamId;
+  final String eventIdProvider;
   final int? htHome, htAway, timestamp;
   Match({
     required this.id,
@@ -76,6 +77,7 @@ class Match {
     this.aiPick = '',
     this.homeTeamId,
     this.awayTeamId,
+    this.eventIdProvider = '',
     this.htHome,
     this.htAway,
     this.timestamp,
@@ -276,6 +278,7 @@ class MatchService {
       aiPick:m['aiPick']?.toString()??'',
       homeTeamId:_int(m['homeTeamId']),
       awayTeamId:_int(m['awayTeamId']),
+      eventIdProvider:m['eventIdProvider']?.toString()??'',
     );
   }
 
@@ -314,6 +317,7 @@ class MatchService {
       sources:const ['SofaScore'],
       homeTeamId:_int(h['id']),
       awayTeamId:_int(a['id']),
+      eventIdProvider:'SofaScore',
     );
   }
 
@@ -1451,7 +1455,7 @@ class _DetailState extends State<_Detail> {
     }
     // Fixture IDs are provider-specific. Only query SofaScore live statistics
     // when the selected event actually came from SofaScore.
-    if(m.status!='NS' && m.sources.any((source)=>source.toLowerCase().contains('sofascore')))await trySofaCurrent();
+    if(m.status!='NS' && m.eventIdProvider.toLowerCase()=='sofascore')await trySofaCurrent();
     if(m.status!='NS')return {'stats':out,'source':source};
 
     final historical=await _fetchHistoricalMatchStats(m);
@@ -1692,7 +1696,7 @@ class _DetailState extends State<_Detail> {
     final ar=aiContext['awayRecent'] is Map?Map<String,dynamic>.from(aiContext['awayRecent'] as Map):<String,dynamic>{};
     Widget p(String l,String v,Color c)=>Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:9),decoration:BoxDecoration(color:c.withValues(alpha:.08),borderRadius:BorderRadius.circular(12),border:Border.all(color:c.withValues(alpha:.18))),child:Column(children:[Text(v+'%',style:TextStyle(color:c,fontSize:16,fontWeight:FontWeight.w900)),Text(l,style:const TextStyle(color:Color(0xFF6F778A),fontSize:7,fontWeight:FontWeight.w900))])));
     return Container(margin:const EdgeInsets.only(top:14),padding:const EdgeInsets.all(15),decoration:BoxDecoration(borderRadius:BorderRadius.circular(22),gradient:const LinearGradient(colors:[Color(0xFF18152C),Color(0xFF0F1622)]),border:Border.all(color:const Color(0x3342E89A))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('PROBABILITÀ MODELLO 1X2',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.6))),Text(conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))]),
+      Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('PROBABILITÀ MODELLO 1X2',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.6))),Text('MAX '+conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900))]),
       const SizedBox(height:8),Text(pick,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const SizedBox(height:10),
       Row(children:[p('CASA',hp,const Color(0xFF39D9FF)),const SizedBox(width:6),p('X',dp,const Color(0xFFFFC857)),const SizedBox(width:6),p('OSPITE',ap,const Color(0xFFA9A0FF))]),
       if((widget.m.aiHomeProb+widget.m.aiDrawProb+widget.m.aiAwayProb)>0)Padding(
