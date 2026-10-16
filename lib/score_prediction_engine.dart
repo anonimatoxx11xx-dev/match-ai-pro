@@ -652,25 +652,6 @@ class ScorePredictionEngine {
     return values;
   }
 
-  List<Map<String, dynamic>> _topScores(
-      double homeLambda, double awayLambda, int count) {
-    final home = _poisson(homeLambda, 7);
-    final away = _poisson(awayLambda, 7);
-    final scores = <Map<String, dynamic>>[];
-    for (var h = 0; h < home.length; h++) {
-      for (var a = 0; a < away.length; a++) {
-        scores.add(<String, dynamic>{
-          'home': h,
-          'away': a,
-          'probability': home[h] * away[a] * 100.0,
-        });
-      }
-    }
-    scores.sort((a, b) => (b['probability'] as double)
-        .compareTo(a['probability'] as double));
-    return scores.take(count).toList();
-  }
-
   Map<String, double> _oneXtwo(double homeLambda, double awayLambda) {
     final matrix = _scoreMatrix(homeLambda, awayLambda, 8);
     var home = 0.0, draw = 0.0, away = 0.0;
