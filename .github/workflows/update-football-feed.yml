@@ -2194,6 +2194,7 @@ jobs:
               return result
 
           output = {
+              "schemaVersion": 2,
               "source": "SofaScore + multi-source" if source_live else "ESPN + multi-source fallback",
               "sourceUrl": source_url,
               "sources": sorted({
@@ -2253,6 +2254,10 @@ jobs:
                   previous = json.load(f)
               for old_result in previous.get("results") or []:
                   if isinstance(old_result, dict):
+                      # Drop legacy rows whose competition was never identified.
+                      league_name = str(old_result.get("league") or "").strip().lower()
+                      if not league_name or league_name in {"football", "soccer", "calcio"}:
+                          continue
                       old_ts = as_int(old_result.get("timestamp")) or 0
                       if old_ts and old_ts >= int((NOW - timedelta(days=35)).timestamp()):
                           norm_home = normalize_team_name(old_result.get("home"))
@@ -2267,6 +2272,11 @@ jobs:
           cutoff_ts = int((NOW - timedelta(days=35)).timestamp())
           for result in combined_history:
               if not isinstance(result, dict):
+                  continue
+              # A score without an identifiable competition is not suitable
+              # for league-aware form and must never be written back to history.
+              league_name = str(result.get("league") or "").strip().lower()
+              if not league_name or league_name in {"football", "soccer", "calcio"}:
                   continue
               if as_int(result.get("scoreHome")) is None or as_int(result.get("scoreAway")) is None:
                   continue
@@ -2289,7 +2299,9 @@ jobs:
           history_results = sorted(history_by_key.values(), key=lambda x: x.get("timestamp") or 0, reverse=True)[:4000]
           with open(history_path, "w", encoding="utf-8") as f:
               json.dump({
+                  "schemaVersion": 2,
                   "source": "ESPN historical scoreboards + current match feed",
+                  "sourcePolicy": "completed results with identifiable competition only",
                   "updatedAt": datetime.now(TZ).isoformat(),
                   "windowDays": 35,
                   "results": history_results,
