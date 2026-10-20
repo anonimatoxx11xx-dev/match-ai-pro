@@ -26,7 +26,7 @@ jobs:
         env:
           APP_RAPIDAPI_KEY: ${{ secrets.APP_RAPIDAPI_KEY }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN || secrets.API_FOOTBALDATA_KEY }}
           FOOTBALLDATA_IO_KEY: ${{ secrets.FOOTBALLDATA_IO_KEY }}
         shell: bash
         run: |
