@@ -113,8 +113,8 @@ class SuperPredictionEngine {
     for (final line in lines) {
       if (!line.toLowerCase().startsWith(prefix.toLowerCase())) continue;
       // Expected feed shape: "Forma casa: ... · 2-8 gol · 1/9 pt".
-      final match = RegExp(r'([0-9]+(?:\\.[0-9]+)?)-([0-9]+(?:\\.[0-9]+)?)\\s*gol', caseSensitive: false).firstMatch(line);
-      final points = RegExp(r'([0-9]+)\\s*/\\s*([0-9]+)\\s*pt', caseSensitive: false).firstMatch(line);
+      final match = RegExp(r'([0-9]+(?:\.[0-9]+)?)-([0-9]+(?:\.[0-9]+)?)\s*gol', caseSensitive: false).firstMatch(line);
+      final points = RegExp(r'([0-9]+)\s*/\s*([0-9]+)\s*pt', caseSensitive: false).firstMatch(line);
       if (match == null || points == null) return null;
       final scored = double.tryParse(match.group(1)!);
       final conceded = double.tryParse(match.group(2)!);
