@@ -167,8 +167,9 @@ class ScorePredictionEngine {
     final kickOff = _integer(fixture['timestamp']) ?? 0;
     final homeName = (fixture['home'] ?? '').toString();
     final awayName = (fixture['away'] ?? '').toString();
-    final homeHistory = _recentTeamForm(homeName, kickOff, historicalResults);
-    final awayHistory = _recentTeamForm(awayName, kickOff, historicalResults);
+    final leagueName = (fixture['league'] ?? '').toString();
+    final homeHistory = _recentTeamForm(homeName, leagueName, kickOff, historicalResults);
+    final awayHistory = _recentTeamForm(awayName, leagueName, kickOff, historicalResults);
     final parsedHome = _parseForm(pre, 'casa');
     final parsedAway = _parseForm(pre, 'ospiti');
     // Prefer a larger verified score history when available. A three-match
@@ -307,7 +308,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v9-expanded-verified-history',
+      'score-model-v10-competition-specific-form',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
@@ -473,12 +474,23 @@ class ScorePredictionEngine {
     return total / games;
   }
 
+  String _leagueKey(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
+        .trim()
+        .replaceAll(RegExp(r"\\s+"), " ");
+  }
+
   Map<String, dynamic>? _recentTeamForm(
     String team,
+    String fixtureLeague,
     int kickOff,
     List<Map<String, dynamic>> history,
   ) {
     if (team.trim().isEmpty || kickOff <= 0) return null;
+    final targetLeague = _leagueKey(fixtureLeague);
+    if (targetLeague.isEmpty) return null;
     final rows = <Map<String, dynamic>>[];
     final earliest = kickOff - const Duration(days: 120).inSeconds;
     for (final result in history) {
@@ -488,6 +500,10 @@ class ScorePredictionEngine {
       // Do not use those rows for team form: names like Liverpool are not unique.
       final league = (result['league'] ?? '').toString().trim().toLowerCase();
       if (league.isEmpty || const {'football', 'soccer', 'calcio'}.contains(league)) continue;
+      // Do not mix a team's cup/international results with its league form.
+      // Cross-competition rows can distort goal rates and repeatedly pull
+      // unrelated fixtures toward the same low-scoring exact score.
+      if (_leagueKey(league) != targetLeague) continue;
       final timestamp = _integer(result['timestamp']) ?? 0;
       if (timestamp <= earliest || timestamp >= kickOff) continue;
       final homeGoals = _integer(result['scoreHome']);
