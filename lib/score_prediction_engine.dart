@@ -238,6 +238,26 @@ class ScorePredictionEngine {
     var awayLambda =
         (baseAway + (_teamGoalBias[awayKey] ?? 0.0)).clamp(0.10, 4.0).toDouble();
 
+    // Use pre-match shot data only when the feed provides both teams' values.
+    // Historical shots on target are a small, capped signal; they must not
+    // overpower verified goals or manufacture a prediction from missing data.
+    final rawStats = fixture['stats'];
+    final stats = rawStats is Map
+        ? Map<String, dynamic>.from(rawStats)
+        : <String, dynamic>{};
+    final homeOnTarget = _double(stats['homeOn']);
+    final awayOnTarget = _double(stats['awayOn']);
+    if (homeOnTarget != null && awayOnTarget != null &&
+        homeOnTarget >= 0 && awayOnTarget >= 0 &&
+        homeOnTarget <= 20 && awayOnTarget <= 20) {
+      final homeShotFactor =
+          (1.0 + (homeOnTarget - 3.5) * 0.025).clamp(0.90, 1.10).toDouble();
+      final awayShotFactor =
+          (1.0 + (awayOnTarget - 3.5) * 0.025).clamp(0.90, 1.10).toDouble();
+      homeLambda = (homeLambda * homeShotFactor).clamp(0.10, 4.0).toDouble();
+      awayLambda = (awayLambda * awayShotFactor).clamp(0.10, 4.0).toDouble();
+    }
+
     // If ESPN provides an identifiable favourite and its actual moneyline,
     // gently reconcile the goal model with that independent market signal.
     // Never infer the favourite from a bare, side-less odds number.
@@ -308,12 +328,16 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v10-competition-specific-form',
+      'score-model-v11-competition-aliases-shots',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
       h2h['games'], h2h['homeGF'], h2h['awayGF'],
       _marketExpectedTotal(pre),
+      _double(stats['homeOn']),
+      _double(stats['awayOn']),
+      _double(stats['homeShots']),
+      _double(stats['awayShots']),
       (fixture['proposals'] as List? ?? const <dynamic>[])
           .map((item) => item.toString()).toList(),
       // Include all sourced market signals; otherwise stored predictions
@@ -475,11 +499,40 @@ class ScorePredictionEngine {
   }
 
   String _leagueKey(String value) {
-    return value
+    final normalized = value
         .toLowerCase()
         .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
         .trim()
         .replaceAll(RegExp(r"\s+"), " ");
+    final compact = normalized.replaceAll(" ", "");
+    const aliases = <String, String>{
+      "englishpremierleague": "premier league",
+      "epl": "premier league",
+      "eflchampionship": "championship",
+      "skybetchampionship": "championship",
+      "eflleagueone": "league one",
+      "eflleaguetwo": "league two",
+      "nationalleagueengland": "national league",
+      "spanishlaliga": "la liga",
+      "laligasantander": "la liga",
+      "segundadivision": "segunda",
+      "laligahypermotion": "segunda",
+      "italianseriea": "serie a",
+      "italianserieb": "serie b",
+      "germanbundesliga": "bundesliga",
+      "zweitebundesliga": "2 bundesliga",
+      "frenchligue1": "ligue 1",
+      "frenchligue2": "ligue 2",
+      "turkishsuperlig": "turkish super lig",
+      "superlig": "turkish super lig",
+      "uefachampionsleague": "uefa champions league",
+      "championsleague": "uefa champions league",
+      "uefaeuropaleague": "uefa europa league",
+      "europaleague": "uefa europa league",
+      "uefaconferenceleague": "uefa conference league",
+      "conferenceleague": "uefa conference league",
+    };
+    return aliases[compact] ?? normalized;
   }
 
   Map<String, dynamic>? _recentTeamForm(
