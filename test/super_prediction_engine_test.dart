@@ -15,8 +15,14 @@ void main() {
     expect(p['xgHome'], greaterThan(0));
     expect(p['xgAway'], greaterThan(0));
     expect(p['score'], matches(RegExp(r'^\d-\d$')));
+    expect(p['over15'], inInclusiveRange(0, 100));
+    expect(p['under15'], inInclusiveRange(0, 100));
     expect(p['over25'], inInclusiveRange(0, 100));
+    expect(p['under25'], inInclusiveRange(0, 100));
+    expect(p['over35'], inInclusiveRange(0, 100));
+    expect(p['under35'], inInclusiveRange(0, 100));
     expect(p['btts'], inInclusiveRange(0, 100));
+    expect(p['noBtts'], inInclusiveRange(0, 100));
     expect((p['scores'] as List), hasLength(5));
   });
 
