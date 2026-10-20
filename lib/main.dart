@@ -1,1955 +1,298 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'score_prediction_engine.dart';
+import 'super_prediction_engine.dart';
 
-// Match AI Pro live build marker
-// Curated men's + women's competition feed
+void main() => runApp(const SuperMatchApp());
 
-List<Match> globalCalendarMatches=[];
+const bg = Color(0xFF080D18);
+const panel = Color(0xFF111B2B);
+const line = Color(0xFF243247);
+const lime = Color(0xFFB7F36B);
+const cyan = Color(0xFF4DE1D2);
+const muted = Color(0xFF8D9CB2);
 
-void main() => runApp(const MatchAIPro());
-
-class MatchAIPro extends StatelessWidget {
-  const MatchAIPro({super.key});
+class SuperMatchApp extends StatelessWidget {
+  const SuperMatchApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
+    title: 'Match AI Pro · Super Engine',
     debugShowCheckedModeBanner: false,
-    title: 'Match AI Pro',
     theme: ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-      scaffoldBackgroundColor: const Color(0xFF070914),
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B7CFF), brightness: Brightness.dark),
+      useMaterial3: true, brightness: Brightness.dark, scaffoldBackgroundColor: bg,
+      colorScheme: ColorScheme.fromSeed(seedColor: lime, brightness: Brightness.dark),
       fontFamily: 'sans',
     ),
-    home: const Dashboard(),
+    home: const PredictionHome(),
   );
 }
 
-class Match {
-  final int id;
-  final String home, away, league, time;
-  final bool live;
-  final int? hs, ascore;
-  final String status;
-  final int confidence;
-  final String pick;
-  final String reason;
-  final List<String> proposals;
-  final List<String> preMatchStats;
-  final Map<String,dynamic> stats;
-  final String statsSource;
-  final String updatedAt;
-  final String source;
-  final List<String> sources;
-  final int aiHomeProb, aiDrawProb, aiAwayProb;
-  final String aiPick;
-  final int? homeTeamId, awayTeamId;
-  final String eventIdProvider;
-  final int? htHome, htAway, timestamp;
-  Match({
-    required this.id,
-    required this.home,
-    required this.away,
-    required this.league,
-    required this.time,
-    required this.live,
-    required this.hs,
-    required this.ascore,
-    required this.status,
-    required this.confidence,
-    required this.pick,
-    required this.reason,
-    required this.proposals,
-    required this.preMatchStats,
-    required this.stats,
-    this.statsSource = '',
-    required this.updatedAt,
-    required this.source,
-    this.sources = const [],
-    this.aiHomeProb = 0,
-    this.aiDrawProb = 0,
-    this.aiAwayProb = 0,
-    this.aiPick = '',
-    this.homeTeamId,
-    this.awayTeamId,
-    this.eventIdProvider = '',
-    this.htHome,
-    this.htAway,
-    this.timestamp,
-  });
+class PredictionHome extends StatefulWidget {
+  const PredictionHome({super.key});
+  @override
+  State<PredictionHome> createState() => _PredictionHomeState();
 }
 
-class MatchService {
-  bool lastFeedWasValid=false;
-  String feedStatus='UNKNOWN';
-  static const _feedUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json';
-  static const _calendarUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/calendar.json';
-  static const _resultsUrl = 'https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/results.json';
-  List<Map<String,dynamic>> _resultHistoryCache=<Map<String,dynamic>>[];
-  DateTime? _resultHistoryFetchedAt;
-
-  Future<List<Map<String,dynamic>>> resultHistory() async {
-    final now=DateTime.now();
-    final fetchedAt=_resultHistoryFetchedAt;
-    if(_resultHistoryCache.isNotEmpty && fetchedAt!=null &&
-        now.difference(fetchedAt)<const Duration(minutes:15)) return _resultHistoryCache;
-    try {
-      final response = await http.get(Uri.parse('$_resultsUrl?t=${now.millisecondsSinceEpoch}')).timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200) return _resultHistoryCache;
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map || decoded['results'] is! List) return _resultHistoryCache;
-      _resultHistoryCache=(decoded['results'] as List).whereType<Map>().map((item)=>Map<String,dynamic>.from(item)).toList();
-      _resultHistoryFetchedAt=DateTime.now();
-      return _resultHistoryCache;
-    } catch (_) {
-      return _resultHistoryCache;
-    }
-  }
-
-  Future<List<Match>> calendar() async {
-    final stamp=DateTime.now().millisecondsSinceEpoch;
-    try {
-      final response=await http.get(Uri.parse('$_calendarUrl?t=$stamp')).timeout(const Duration(seconds:15));
-      if(response.statusCode==200){
-        final decoded=jsonDecode(response.body);
-        if(decoded is Map && decoded['matches'] is List){
-          return (decoded['matches'] as List).whereType<Map>().map((m)=>_fromFeed(m,decoded['updatedAt']?.toString()??'')).whereType<Match>().toList();
-        }
-      }
-    } catch (_) {}
-    return <Match>[];
-  }
-
-  Future<List<Match>> today() async {
-    final errors=<String>[];
-    lastFeedWasValid=false;
-    feedStatus='UNKNOWN';
-    final urls = <String>[
-      '$_feedUrl?t=${DateTime.now().millisecondsSinceEpoch}',
-      _sofaUrl(),
-      _sofaApiUrl(),
-    ];
-
-    for (final url in urls) {
-      try {
-        final response = await http.get(
-          Uri.parse(url),
-          headers: const {
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36',
-            'Referer': 'https://www.sofascore.com/',
-            'Origin': 'https://www.sofascore.com',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Cache-Control': 'no-cache',
-          },
-        ).timeout(const Duration(seconds: 10));
-
-        if (response.statusCode != 200) {
-          errors.add('$url -> HTTP ${response.statusCode}');
-          continue;
-        }
-
-        final decoded = jsonDecode(response.body);
-        final matches = _parsePayload(decoded);
-        if (decoded is Map && decoded['matches'] is List) {
-          lastFeedWasValid = true;
-          feedStatus = (decoded['feedStatus'] ?? 'OK').toString().toUpperCase();
-          return matches;
-        }
-        if (matches.isNotEmpty) {
-          feedStatus = 'SOFASCORE_DIRECT';
-          return matches;
-        }
-        errors.add('$url -> feed vuoto');
-      } catch (e) {
-        errors.add('$url -> ${e.runtimeType}');
-      }
-    }
-
-    try {
-      final local = await rootBundle.loadString('data/latest.json');
-      final localDecoded = jsonDecode(local);
-      final matches = _parsePayload(localDecoded);
-      if (localDecoded is Map && localDecoded['matches'] is List) {
-        lastFeedWasValid = true;
-        return matches;
-      }
-      if (matches.isNotEmpty) return matches;
-    } catch (_) {
-      // Last-resort local feed is optional during development.
-    }
-
-    throw Exception('Nessun feed disponibile${errors.isEmpty ? '' : ': ${errors.last}'}');
-  }
-
-  String _date() {
-    final d=DateTime.now();
-    return '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
-  }
-
-  String _sofaUrl() => 'https://www.sofascore.com/api/v1/sport/football/scheduled-events/${_date()}';
-  String _sofaApiUrl() => 'https://api.sofascore.com/api/v1/sport/football/scheduled-events/${_date()}';
-
-  List<Match> _parsePayload(dynamic decoded) {
-    if (decoded is! Map) return <Match>[];
-    final rawMatches = decoded['matches'];
-    if (rawMatches is List) {
-      final updatedAt = decoded['updatedAt']?.toString() ?? '';
-      decodedSource = decoded['source']?.toString() ?? 'SofaScore';
-      const allowed = {
-        'serie a','serie b',
-        'premier league','championship','league one','league two','national league',
-        'la liga','segunda','segunda división','segunda division',
-        'ligue 1','ligue 2','eredivisie','turkish super lig',
-        'bundesliga','2. bundesliga',
-        'uefa champions league','uefa europa league','uefa conference league',
-        'uefa women’s champions league','uefa women\'s champions league',
-        'fa cup','efl cup','community shield','copa del rey','supercopa de españa','supercopa de espana',
-        'german dfb pokal','coppa italia','coupe de france','knvb cup','turkish cup',
-        'women\'s super league','liga f','vrouwen eredivisie','frauen-bundesliga','première ligue','premiere ligue',
-        'serie a femminile',
-        'international friendly','international friendlies','uefa nations league','fifa world cup qualifying',
-        'world cup qualifying - uefa','world cup qualifying - conmebol','world cup qualifying - concacaf',
-        'world cup qualifying - afc','world cup qualifying - caf','world cup qualifying - ofc',
-        'concacaf nations league','copa america','afc asian cup','africa cup of nations','gold cup',
-      };
-      bool isAllowed(Map m){
-        final v=(m['league']?.toString()??'').trim().toLowerCase();
-        return allowed.contains(v) || (v.endsWith(' women') && allowed.contains(v.substring(0,v.length-6).trim()));
-      }
-      return rawMatches.whereType<Map>().where(isAllowed).map((m) => _fromFeed(m, updatedAt)).whereType<Match>().toList();
-    }
-
-    final events = decoded['events'];
-    if (events is List) {
-      return events.whereType<Map>().map((e) => _fromEvent(e)).whereType<Match>().toList();
-    }
-    return <Match>[];
-  }
-
-  String decodedSource = 'SofaScore';
-
-  Match? _fromFeed(Map m, String updatedAt) {
-    final id = _int(m['id']) ?? 0;
-    if (id == 0) return null;
-    final proposals = (m['proposals'] as List? ?? const [])
-        .map((x) => x.toString().trim())
-        .where((x) => x.isNotEmpty)
-        .toList();
-    final pre = (m['preMatchStats'] as List? ?? const [])
-        .map((x) => x.toString().trim())
-        .where((x) => x.isNotEmpty)
-        .toList();
-    final score = (_int(m['proposalScore']) ?? 0).clamp(0, 100);
-    // Never invent an AI index when the feed has no scored proposal.
-    final confidence = score;
-    return Match(
-      id:id,
-      home:m['home']?.toString() ?? 'Home',
-      away:m['away']?.toString() ?? 'Away',
-      league:m['league']?.toString() ?? 'Football',
-      time:m['time']?.toString() ?? '--:--',
-      live:m['live'] == true || m['status']?.toString() == 'LIVE',
-      hs:_int(m['scoreHome']),
-      ascore:_int(m['scoreAway']),
-      htHome:_int(m['scoreHTHome']),
-      htAway:_int(m['scoreHTAway']),
-      timestamp:_int(m['timestamp']),
-      status:m['status']?.toString() ?? 'NS',
-      confidence:confidence,
-      pick:proposals.isNotEmpty ? proposals.first : (m['status']?.toString() == 'LIVE' ? 'Live • dati in aggiornamento' : 'Nessuna proposta forte'),
-      reason:pre.isNotEmpty ? pre.join(' • ') : (proposals.isNotEmpty ? 'Proposta disponibile nel feed statistico.' : (m['status']?.toString() == 'LIVE' ? 'Il punteggio live non è ancora disponibile nel feed corrente.' : 'Dati insufficienti per una selezione affidabile.')),
-      proposals:proposals,
-      preMatchStats:pre,
-      stats:_map(m['stats']),
-      statsSource:m['statsSource']?.toString() ?? '',
-      updatedAt:updatedAt,
-      source:decodedSource,
-      sources:(m['sources'] is List)?List<String>.from((m['sources'] as List).map((x)=>x.toString())):const [],
-      aiHomeProb:_int(_map(m['aiProbability'])['home'])??0,
-      aiDrawProb:_int(_map(m['aiProbability'])['draw'])??0,
-      aiAwayProb:_int(_map(m['aiProbability'])['away'])??0,
-      aiPick:m['aiPick']?.toString()??'',
-      homeTeamId:_int(m['homeTeamId']),
-      awayTeamId:_int(m['awayTeamId']),
-      eventIdProvider:m['eventIdProvider']?.toString()??'',
-    );
-  }
-
-  Match? _fromEvent(Map e) {
-    final id=_int(e['id']) ?? 0;
-    if (id == 0) return null;
-    final h=_map(e['homeTeam']);
-    final a=_map(e['awayTeam']);
-    final t=_map(e['tournament']);
-    final status=_map(e['status'])['type']?.toString() ?? 'notstarted';
-    final ts=_int(e['startTimestamp']);
-    final dt=ts==null?null:DateTime.fromMillisecondsSinceEpoch(ts*1000).toLocal();
-    final live={'inprogress','halftime','extra_time','penalties','interrupted'}.contains(status);
-    final finished={'finished','ended','afterextra','afterpenalties'}.contains(status);
-    return Match(
-      id:id,
-      home:h['name']?.toString() ?? 'Home',
-      away:a['name']?.toString() ?? 'Away',
-      league:t['name']?.toString() ?? 'Football',
-      time:dt==null?'--:--':'${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}',
-      live:live,
-      hs:_int(_map(e['homeScore'])['current']),
-      ascore:_int(_map(e['awayScore'])['current']),
-      htHome:_int(_map(e['homeScore'])['period1']),
-      htAway:_int(_map(e['awayScore'])['period1']),
-      timestamp:ts,
-      status:live ? 'LIVE' : (finished ? 'FT' : 'NS'),
-      confidence:0,
-      pick:finished ? 'Partita terminata' : 'Dati live SofaScore',
-      reason:finished ? 'Risultato aggiornato da SofaScore.' : 'Evento live ricevuto da SofaScore.',
-      proposals:const [],
-      preMatchStats:const [],
-      stats:const {},
-      updatedAt:'',
-      source:'SofaScore',
-      sources:const ['SofaScore'],
-      homeTeamId:_int(h['id']),
-      awayTeamId:_int(a['id']),
-      eventIdProvider:'SofaScore',
-    );
-  }
-
-  int? _int(dynamic v) {
-    if (v is num) return v.toInt();
-    return int.tryParse(v?.toString() ?? '');
-  }
-
-  Map<String,dynamic> _map(dynamic value) =>
-      value is Map ? Map<String,dynamic>.from(value) : <String,dynamic>{};
-}
-
-class Dashboard extends StatefulWidget { const Dashboard({super.key}); @override State<Dashboard> createState()=>_DashboardState(); }
-class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
-  final service=MatchService();
-  final scorePredictor=ScorePredictionEngine();
-  bool _loadInProgress=false;
-  List<Map<String,dynamic>> predictionRecords=[];
-  String predictionFilter='PROSSIME';
-  String _aiSearchQuery='';
-  String _aiSearchStatus='TUTTE';
-  late final AnimationController pulse=AnimationController(vsync:this,duration:const Duration(seconds:3))..repeat(reverse:true);
-  List<Match> matches=[]; List<Match> calendarMatches=[]; bool loading=true; bool calendarLoading=true; String? error; int tab=0; Timer? refreshTimer;
-  @override void initState(){super.initState();load(); refreshTimer=Timer.periodic(const Duration(minutes:1), (_) => load());}
-  @override void dispose(){refreshTimer?.cancel(); pulse.dispose(); super.dispose();}
-  Future<void> load() async {
-    if(_loadInProgress)return;
-    _loadInProgress=true;
-    if(matches.isEmpty && mounted)setState(()=>loading=true);
-    try{
-      final results=await Future.wait([service.today(),service.calendar(),service.resultHistory()]);
-      final todayMatches=results[0] as List<Match>;
-      final nextCalendar=results[1] as List<Match>;
-      final historicalResults=results[2] as List<Map<String,dynamic>>;
-      // Calendar often repeats today's fixtures but omits form and odds.
-      // Add the calendar first, then merge today's richer feed into each event.
-      // Never let an empty calendar copy erase the only sourced form evidence.
-      final fixtureByKey=<String,Map<String,dynamic>>{};
-      String fixtureKey(Map<String,dynamic> input){
-        final id=(input['id'] as num?)?.toInt()??0;
-        return id>0?'id:'+id.toString():input['home'].toString()+'|'+input['away'].toString()+'|'+input['timestamp'].toString();
-      }
-      void addFixture(Match fixture){
-        final input=_predictionInput(fixture);
-        final key=fixtureKey(input);
-        final old=fixtureByKey[key];
-        if(old==null){fixtureByKey[key]=input;return;}
-        final merged=<String,dynamic>{...old,...input};
-        // Combine lists and maps instead of replacing richer data with empty
-        // values from the duplicate feed record.
-        for(final field in <String>['preMatchStats','proposals','sources']){
-          final values=<String>[];
-          for(final raw in <dynamic>[...(old[field] as List? ?? const <dynamic>[]),...(input[field] as List? ?? const <dynamic>[])]) {
-            final value=raw.toString().trim();
-            if(value.isNotEmpty&&!values.contains(value))values.add(value);
-          }
-          merged[field]=values;
-        }
-        merged['stats']=<String,dynamic>{
-          ...(old['stats'] is Map?Map<String,dynamic>.from(old['stats'] as Map):<String,dynamic>{}),
-          ...(input['stats'] is Map?Map<String,dynamic>.from(input['stats'] as Map):<String,dynamic>{}),
-        };
-        // Preserve actual scores when one feed has them and the duplicate has null.
-        for(final field in <String>['scoreHome','scoreAway','scoreHTHome','scoreHTAway']){
-          if(input[field]==null&&old[field]!=null)merged[field]=old[field];
-        }
-        fixtureByKey[key]=merged;
-      }
-      for(final fixture in nextCalendar)addFixture(fixture);
-      for(final fixture in todayMatches)addFixture(fixture);
-      await scorePredictor.update(
-        fixtures:fixtureByKey.values.toList(),
-        historicalResults:historicalResults,
-      );
-      if(!mounted)return;
-      globalCalendarMatches=nextCalendar;
-      setState(() {
-        matches=todayMatches;
-        calendarMatches=nextCalendar;
-        predictionRecords=scorePredictor.records;
-        error=null;
-      });
-    }catch(_){if(!mounted)return;setState(()=>error=null);}
-    finally{
-      _loadInProgress=false;
-      if(mounted && loading)setState(()=>loading=false);
-    }
-  }
-
-  Map<String,dynamic> _predictionInput(Match m)=> <String,dynamic>{
-    'id':m.id,'home':m.home,'away':m.away,'league':m.league,'time':m.time,
-    'timestamp':m.timestamp??0,'status':m.status,
-    'scoreHome':m.hs,'scoreAway':m.ascore,'scoreHTHome':m.htHome,'scoreHTAway':m.htAway,
-    // Pass the feed's named Winner signal to the score model. Without this,
-    // _marketFavoriteSignal never receives proposals and the odds adjustment
-    // silently does nothing even when the feed explicitly identifies a side.
-    'proposals':m.proposals,
-    'preMatchStats':m.preMatchStats,'stats':m.stats,'updatedAt':m.updatedAt,
-  };
-  @override Widget build(BuildContext context){
-    bool marketSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('(market signal)')); bool conflictSignal(Match m)=>m.proposals.isNotEmpty && m.proposals.every((p)=>p.contains('Conflitto evidenze')); final upcomingFeed=matches.isNotEmpty && matches.any((m)=>m.status=='NS' && m.time.contains('|')); final aiSignals=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && m.confidence>=60 && !marketSignal(m) && !conflictSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final marketSignals=matches.where((m)=>m.status=='NS' && marketSignal(m)).toList()..sort((a,b)=>b.confidence.compareTo(a.confidence)); final strong=aiSignals.where((m)=>m.confidence>=80).toList(); final top=aiSignals.take(6).toList(); final medium=aiSignals.where((m)=>m.confidence<80).take(6).toList();
-    return Scaffold(
-      body: Stack(children:[
-        const _Background(),
-        SafeArea(child:Column(children:[
-          Padding(padding:const EdgeInsets.fromLTRB(18,14,18,8),child:Row(children:[
-            Container(width:42,height:42,decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xFF8B7CFF),Color(0xFF3AD8FF)]),borderRadius:BorderRadius.circular(14)),child:const Icon(Icons.auto_awesome,color:Colors.white)),
-            const SizedBox(width:12),
-            const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('MATCH AI PRO',style:TextStyle(fontWeight:FontWeight.w900,fontSize:18,letterSpacing:.5)),Text('AI FOOTBALL INTELLIGENCE',style:TextStyle(fontSize:9,color:Color(0xFF9299AD),letterSpacing:1.3))])),
-            IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded,color:Color(0xFFAAA1FF)))
-          ])),
-          Expanded(child: loading ? const Center(child:CircularProgressIndicator()) : IndexedStack(index:tab,children:[
-            _home(top, medium, aiSignals, strong, marketSignals, upcomingFeed),
-            _calendar(),
-            _all(upcomingFeed),
-            _predictionsView(),
-            _ai(aiSignals, strong, marketSignals, upcomingFeed),
-          ])),
-          _nav(),
-        ]))
-      ])
-    );
-  }
-  Widget _home(List<Match> top, List<Match> medium, List<Match> signals, List<Match> strong, List<Match> marketSignals, bool upcomingFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    if(matches.isEmpty && calendarMatches.isNotEmpty) _upcomingHome(),
-    if(matches.isNotEmpty) AnimatedBuilder(animation:pulse,builder:(_,__)=>Container(
-      padding:const EdgeInsets.all(20),decoration:BoxDecoration(
-        borderRadius:BorderRadius.circular(28),
-        gradient:LinearGradient(colors:[const Color(0xFF2A0A19).withValues(alpha:.98),const Color(0xFF15112A).withValues(alpha:.97),const Color(0xFF0A0E19).withValues(alpha:.98)]),
-        border:Border.all(color:const Color(0xFFFF4F79).withValues(alpha:.28)),
-        boxShadow:[BoxShadow(color:const Color(0xFFFF1F55).withValues(alpha:.07+pulse.value*.08),blurRadius:35,spreadRadius:1),BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.08),blurRadius:45,spreadRadius:2)]
-      ),
-      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Row(children:[const Icon(Icons.bolt_rounded,color:Color(0xFFFF4F79),size:16),const SizedBox(width:5),const Text('AI KILL MODE',style:TextStyle(color:Color(0xFFFF6A8D),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:2))]),
-        const SizedBox(height:7),Text(upcomingFeed?'Le migliori prossime\npartite.':'Le migliori partite\ndi oggi.',style:const TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.02)),
-        const SizedBox(height:8),Text('${matches.length} partite · ${signals.length} proposte IA · ${marketSignals.length} mercato · ${strong.length} forti · ${matches.isEmpty ? '—' : matches.first.source}',style:const TextStyle(color:Color(0xFF9299AD),fontSize:12)),
-        const SizedBox(height:18),Row(children:[
-          _orb(top.isNotEmpty ? top.first.confidence : (medium.isNotEmpty ? medium.first.confidence : 0)),
-          const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(top.isNotEmpty ? 'TOP INDICE IA' : (marketSignals.isNotEmpty ? 'TOP MARKET SIGNAL' : 'TOP SIGNAL'),style:const TextStyle(color:Color(0xFF42E89A),fontSize:11,fontWeight:FontWeight.w900)),
-            const SizedBox(height:5),Text(top.isNotEmpty ? top.first.home : (marketSignals.isNotEmpty ? marketSignals.first.home : 'Feed disponibile'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),
-            Text(top.isNotEmpty ? top.first.away : (marketSignals.isNotEmpty ? marketSignals.first.away : 'Nessuna proposta disponibile'),style:const TextStyle(fontSize:12,color:Color(0xFFB4BAC8))),
-          ]))
-        ])
-      ])
-    )),
-    if(top.isNotEmpty) ...[
-      _title('🎯 TOP INDICE IA','Ordinate per indice IA'),
-      ...top.take(3).toList().asMap().entries.map((entry){
-        final m=entry.value; final rank=entry.key+1;
-        return InkWell(onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF080B14),builder:(_)=>_Detail(m)),child:Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.symmetric(horizontal:14,vertical:12),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(16),border:Border.all(color:rank==1?const Color(0x55FF4F79):Colors.white10)),child:Row(children:[
-          Container(width:28,height:28,decoration:BoxDecoration(shape:BoxShape.circle,color:rank==1?const Color(0x33FF4F79):const Color(0x188B7CFF)),child:Center(child:Text('$rank',style:TextStyle(color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF),fontWeight:FontWeight.w900)))),
-          const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(m.home+' · '+m.away,style:const TextStyle(fontSize:12,fontWeight:FontWeight.w900)),Text(m.pick,style:const TextStyle(color:Color(0xFF7F879A),fontSize:9))])),
-          Column(crossAxisAlignment:CrossAxisAlignment.end,children:[
-            Text(m.confidence.toString(),style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:rank==1?const Color(0xFFFF6A8D):const Color(0xFFA9A0FF))),
-            const Text('AI INDEX',style:TextStyle(color:Color(0xFF5F6778),fontSize:6,fontWeight:FontWeight.w900)),
-          ]),
-        ])));
-      }),
-    ],
-    _title('🔥 Proposte IA',upcomingFeed?'Analisi delle prossime partite':'Selezione multi-fonte'),
-    ..._leagueSections(top, _card),
-    if(top.isEmpty && medium.isNotEmpty) ...[
-      _title('📊 Segnali monitorati','Confidenza media · non forti'),
-      ..._leagueSections(medium, _card),
-    ],
-    if(top.isEmpty && medium.isEmpty && matches.isNotEmpty) _empty('Nessuna proposta IA forte','Il motore ha solo segnali di mercato o conflitti di evidenza; non li presenta come previsione IA.'),
-    if(marketSignals.isNotEmpty) ...[
-      _title('📈 Segnali mercato','Separati dalle proposte IA'),
-      ..._leagueSections(marketSignals.take(3).toList(), _card),
-    ],
-    if(matches.isEmpty && calendarMatches.isEmpty) _empty('Feed in aggiornamento','Riprova tra poco: il calendario e il feed vengono aggiornati automaticamente.')
-  ]);
-  Widget _upcomingHome()=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    const Text('Prossime partite selezionate',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,height:1.05)),
-    const SizedBox(height:7),
-    const Text('Il feed di oggi è vuoto: ecco i prossimi incontri dei campionati che hai scelto.',style:TextStyle(color:Color(0xFF9299AD),fontSize:12)),
-    const SizedBox(height:14),
-    ...calendarMatches.take(6).map(_calendarCard),
-  ]);
-  Widget _calendarCard(Match m){
-    final parts=m.time.split('|');
-    final date=parts.length>1 ? parts.first : '';
-    final time=parts.length>1 ? parts.last : m.time;
-    return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xD9121724),borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Row(children:[
-      SizedBox(width:70,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        if(date.isNotEmpty) Text(date,style:const TextStyle(color:Color(0xFF9B92FF),fontSize:10,fontWeight:FontWeight.w800)),
-        const SizedBox(height:3),
-        Text(time,style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:14,fontWeight:FontWeight.w900)),
-      ])),
-      Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF858DA0),letterSpacing:.8,fontWeight:FontWeight.w800)),
-        const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800)),
-      ])),
-    ]));
-  }
-  Widget _all(bool upcomingFeed)=>ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-    _title(upcomingFeed?'Prossime partite':'Partite di oggi',matches.isEmpty?'Nessuna partita selezionata oggi':'Feed ${matches.first.source} · refresh automatico'),
-    if(matches.isNotEmpty) ..._leagueSections(matches, _card),
-    if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
-      _title('Prossime partite','Calendario selezionato'),
-      ..._leagueSections(calendarMatches.take(20).toList(), _calendarCard),
-    ],
-  ]);
-
-  Widget _predictionsView(){
-    // Only show active forecasts whose fixture is present in the currently
-    // fetched feed. The learner intentionally retains old records for grading,
-    // but those records must never reappear as today's upcoming predictions.
-    final activeIds=<int>{
-      ...matches.map((m)=>m.id).where((id)=>id>0),
-      ...calendarMatches.map((m)=>m.id).where((id)=>id>0),
-    };
-    final nowSeconds=DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final upcoming=predictionRecords.where((p){
-      final id=(p['id'] as num?)?.toInt() ?? 0;
-      final kickoff=(p['timestamp'] as num?)?.toInt() ?? 0;
-      return p['gradedFT']!=true && p['status']=='NS' &&
-        activeIds.contains(id) && kickoff >= nowSeconds - 30 * 60;
-    }).toList()
-      ..sort((a,b)=>(a['timestamp'] as num? ?? 0).compareTo(b['timestamp'] as num? ?? 0));
-    final live=predictionRecords.where((p){
-      final id=(p['id'] as num?)?.toInt() ?? 0;
-      return p['gradedFT']!=true && p['status']=='LIVE' && activeIds.contains(id);
-    }).toList();
-    final completed=predictionRecords.where((p)=>p['gradedFT']==true).toList()
-      ..sort((a,b)=>(b['timestamp'] as num? ?? 0).compareTo(a['timestamp'] as num? ?? 0));
-    final showUpcoming=predictionFilter=='PROSSIME'||predictionFilter=='TUTTE';
-    final showLive=predictionFilter=='LIVE'||predictionFilter=='TUTTE';
-    final showCompleted=predictionFilter=='VERIFICATE'||predictionFilter=='TUTTE';
-    final ftChecked=completed.length;
-    final ftExact=completed.where((p)=>p['ftExact']==true).length;
-    final ftOutcome=completed.where((p)=>p['ft1x2Correct']==true).length;
-    final brierRows=completed.where((p)=>p['brier1X2'] is num).toList();
-    final meanBrier=brierRows.isEmpty?null:brierRows.fold<double>(0.0,(sum,p)=>sum+(p['brier1X2'] as num).toDouble())/brierRows.length;
-    final meanGoalError=completed.where((p)=>p['goalError'] is num).toList();
-    final averageGoalError=meanGoalError.isEmpty?null:meanGoalError.fold<double>(0.0,(sum,p)=>sum+(p['goalError'] as num).toDouble())/meanGoalError.length;
-    final htChecked=predictionRecords.where((p)=>p['gradedHT']==true).length;
-    final htExact=predictionRecords.where((p)=>p['gradedHT']==true && p['htExact']==true).length;
-    final errors=completed.where((p)=>p['ftExact']!=true).length;
-    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,24),children:[
-      _title('⚽ PRONOSTICI IA','Risultato esatto · 1° tempo + finale'),
-      Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(
-        color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20),
-        border:Border.all(color:const Color(0x338B7CFF))),
-        child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-          Row(children:[
-            const Icon(Icons.psychology_alt_rounded,color:Color(0xFFA9A0FF),size:25),
-            const SizedBox(width:9),
-            const Expanded(child:Text('Motore dei risultati esatti',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900))),
-          ]),
-          const SizedBox(height:7),
-          const Text('Il modello combina gol fatti e subiti nelle ultime partite di entrambe le squadre, forza offensiva/difensiva, fattore casa e calibrazione dagli errori precedenti. Aggiorna i pronostici prima del calcio d’inizio e conserva quelli definitivi quando la partita inizia.',
-            style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.45)),
-          const SizedBox(height:8),
-          const Text('Il punteggio all’intervallo è una stima separata derivata dalla distribuzione temporale dei gol; viene calibrato quando la fonte fornisce il risultato reale del primo tempo. Non è una certezza né una garanzia di vincita.',
-            style:TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4)),
-        ]),
-      ),
-      const SizedBox(height:10),
-      GridView.count(crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
-        crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:2.3,children:[
-          _predictionMetric('FINALI VERIFICATI',ftChecked==0?'IN ATTESA':ftChecked.toString(),const Color(0xFF39D9FF)),
-          _predictionMetric('ESATTO FINALE',ftChecked==0?'—':ftExact.toString()+' / '+ftChecked.toString(),const Color(0xFF42E89A)),
-          _predictionMetric('ESATTO 1° TEMPO',htChecked==0?'N/D':htExact.toString()+' / '+htChecked.toString(),const Color(0xFFA9A0FF)),
-          _predictionMetric('ERRORI MEMORIZZATI',errors.toString(),const Color(0xFFFFC857)),
-          _predictionMetric('BRIER 1X2',meanBrier==null?'N/D':meanBrier.toStringAsFixed(3),const Color(0xFFFFC857)),
-          _predictionMetric('ERRORE MEDIO GOL',averageGoalError==null?'N/D':averageGoalError.toStringAsFixed(2),const Color(0xFF39D9FF)),
-        ]),
-      Padding(padding:const EdgeInsets.fromLTRB(3,7,3,0),child:Text(
-        (ftChecked==0?'Esito 1X2: in attesa di risultati verificati.':'Esito 1X2 corretto: '+ftOutcome.toString()+' / '+ftChecked.toString())+
-        ' · Squadre ricalibrate: '+scorePredictor.trainedTeams.toString()+
-        (meanBrier==null?' · Brier non disponibile finché non vengono verificati esiti con probabilità salvate.':' · Brier medio: '+meanBrier.toStringAsFixed(3)+' (più basso è meglio).')+
-        (htChecked==0?' · Primo tempo: quota iniziale 45%, non ancora calibrata su risultati reali.':' · Quota media gol 1° tempo appresa su '+htChecked.toString()+' intervalli: '+(scorePredictor.halfTimeFraction*100).toStringAsFixed(0)+'%'),
-        style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.4))),
-      if(service.feedStatus=='DEGRADED')Padding(
-        padding:const EdgeInsets.only(top:10),
-        child:Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(
-          color:const Color(0x22FFC857),borderRadius:BorderRadius.circular(14),
-          border:Border.all(color:const Color(0x66FFC857))),
-          child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Icon(Icons.warning_amber_rounded,color:Color(0xFFFFC857),size:18),
-            SizedBox(width:8),
-            Expanded(child:Text('FEED DEGRADATO: le fonti principali non hanno confermato tutti gli eventi. I pronostici sono stime provvisorie, non verifiche dei risultati. Non usare questi dati come conferma di una partita o come garanzia.',
-              style:TextStyle(color:Color(0xFFFFD985),fontSize:10,height:1.4,fontWeight:FontWeight.w700))),
-          ]))),
-      const SizedBox(height:14),
-      SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[
-        for(final filter in <String>['PROSSIME','LIVE','VERIFICATE','TUTTE'])
-          Padding(padding:const EdgeInsets.only(right:7),child:ChoiceChip(
-            label:Text(filter,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w900)),
-            selected:predictionFilter==filter,showCheckmark:false,
-            selectedColor:const Color(0xFF282343),backgroundColor:const Color(0xFF101522),
-            side:BorderSide(color:predictionFilter==filter?const Color(0xFFA9A0FF):Colors.white10),
-            labelStyle:TextStyle(color:predictionFilter==filter?const Color(0xFFC6BDFF):const Color(0xFF80889A)),
-            onSelected:(_)=>setState(()=>predictionFilter=filter),
-          )),
-      ])),
-      if(showUpcoming)...[
-        _title('PROSSIME PARTITE','Pronostici con campione storico'),
-        if(upcoming.isEmpty)_empty('Nessun pronostico sufficientemente supportato',
-          'Servono risultati recenti verificabili per entrambe le squadre. La scheda non inventa un punteggio quando il campione manca. Riprova dopo il prossimo aggiornamento del feed.'),
-        ...upcoming.take(35).map(_forecastCard),
-      ],
-      if(showLive&&live.isNotEmpty)...[
-        _title('PARTITE IN CORSO','Pronostico congelato al pre-match'),
-        ...live.take(12).map(_forecastCard),
-      ],
-      if(showCompleted)...[
-        _title('APPRENDIMENTO DAI RISULTATI','Verifiche e correzioni salvate sul dispositivo'),
-      Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(
-        color:const Color(0xFF101522),borderRadius:BorderRadius.circular(16),border:Border.all(color:Colors.white10)),
-        child:const Text('Quando arriva il risultato finale, il pronostico viene confrontato con il punteggio reale. Gli errori sono registrati e aggiornano il correttore dei gol per squadra; i risultati del primo tempo, quando disponibili, ricalibrano la quota di gol attesa prima dell’intervallo. I dati di apprendimento rimangono salvati sul telefono.',
-          style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.45))),
-      if(showCompleted&&completed.isEmpty)_empty('Nessuna verifica completata','I pronostici saranno valutati quando le partite avranno un risultato finale nella fonte dati.'),
-      if(showCompleted)...completed.take(18).map(_gradedForecastCard),
-      ],
-      const SizedBox(height:8),
-    ]);
-  }
-
-  Widget _predictionMetric(String label,String value,Color accent)=>Container(
-    padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),
-    decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(14),
-      border:Border.all(color:accent.withValues(alpha:.25))),
-    child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
-      Text(value,style:TextStyle(fontSize:18,fontWeight:FontWeight.w900,color:accent)),
-      const SizedBox(height:3),
-      Text(label,style:const TextStyle(fontSize:8,color:Color(0xFF7F879A),fontWeight:FontWeight.w900)),
-    ]),
-  );
-
-  String _forecastPercent(dynamic value){
-    final n=value is num?value.toDouble():double.tryParse((value??'').toString());
-    return n==null?'—':n.toStringAsFixed(1)+'%';
-  }
-
-  Widget _forecastScoreBox(String label,dynamic home,dynamic away,dynamic probability)=>Expanded(
-    child:Container(padding:const EdgeInsets.symmetric(horizontal:10,vertical:11),
-      decoration:BoxDecoration(color:const Color(0xFF181D2D),borderRadius:BorderRadius.circular(13),
-        border:Border.all(color:const Color(0x1FFFFFFF))),
-      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Text(label,style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.6)),
-        const SizedBox(height:6),
-        Text((home??'—').toString()+' - '+(away??'—').toString(),
-          style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900,color:Color(0xFFE8EAF2))),
-        const SizedBox(height:3),
-        Text('Prob. esatto stimata '+_forecastPercent(probability),
-          style:const TextStyle(color:Color(0xFF7F879A),fontSize:8)),
-      ]),
-    ),
-  );
-
-  Widget _forecastCard(Map<String,dynamic> p){
-    final evidence=p['evidence'] is Map?Map<String,dynamic>.from(p['evidence']):<String,dynamic>{};
-    final updated=DateTime.tryParse((p['updatedAt']??'').toString())?.toLocal();
-    final updatedTime=updated==null?'':updated.toString().substring(11,16);
-    final revisions=(p['revisions'] as List? ?? const <dynamic>[]).length;
-    final ongoing=p['status']=='LIVE';
-    return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),
-      decoration:BoxDecoration(color:const Color(0xFF101522),borderRadius:BorderRadius.circular(19),
-        border:Border.all(color:ongoing?const Color(0x55FF5D73):const Color(0x33A9A0FF))),
-      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Row(children:[
-          Expanded(child:Text((p['league']??'CALCIO').toString().toUpperCase(),
-            style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.8))),
-          if(ongoing)const Text('LIVE · STIMA CONGELATA',style:TextStyle(color:Color(0xFFFF8293),fontSize:7,fontWeight:FontWeight.w900)),
-          if(!ongoing)Text((p['time']??'--:--').toString().split('|').last,
-            style:const TextStyle(color:Color(0xFFFFC857),fontSize:9,fontWeight:FontWeight.w900)),
-        ]),
-        const SizedBox(height:7),
-        Text((p['home']??'Casa').toString()+'  vs  '+(p['away']??'Ospite').toString(),
-          style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900)),
-        const SizedBox(height:11),
-        Row(children:[
-          _forecastScoreBox('1° TEMPO',p['predHTHome'],p['predHTAway'],p['probHTExact']),
-          const SizedBox(width:8),
-          _forecastScoreBox('RISULTATO FINALE',p['predFTHome'],p['predFTAway'],p['probFTExact']),
-        ]),
-        const SizedBox(height:9),
-        Text('Campione: casa '+(evidence['homeGames']??'—').toString()+
-          ' gare · ospite '+(evidence['awayGames']??'—').toString()+' gare · H2H '+(evidence['h2hGames']??0).toString()+
-          ' · campione breve corretto verso la media',
-          style:const TextStyle(color:Color(0xFF9299AD),fontSize:9,fontWeight:FontWeight.w800)),
-        const SizedBox(height:5),
-        Text('1X2 modello: 1 '+_forecastPercent(p['probHome'])+
-          ' · X '+_forecastPercent(p['probDraw'])+
-          ' · 2 '+_forecastPercent(p['probAway']),
-          style:const TextStyle(color:Color(0xFFB7BED0),fontSize:9,fontWeight:FontWeight.w800)),
-        const SizedBox(height:7),
-        Wrap(spacing:6,runSpacing:6,children:[
-          _marketChip('Over 1.5',p['probOver15']),
-          _marketChip('Over 2.5',p['probOver25']),
-          _marketChip('Under 3.5',p['probUnder35']),
-          _marketChip('Gol/Gol',p['probBTTSYes']),
-          _marketChip('No Gol/Gol',p['probBTTSNo']),
-        ]),
-        const SizedBox(height:7),
-        Builder(builder:(context){
-          final scores=(p['topScores'] as List? ?? const <dynamic>[]).whereType<Map>().toList();
-          if(scores.isEmpty)return const SizedBox.shrink();
-          return Container(width:double.infinity,padding:const EdgeInsets.all(10),
-            decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(12),border:Border.all(color:Colors.white10)),
-            child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              const Text('RISULTATI ESATTI ALTERNATIVI',style:TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.6)),
-              const SizedBox(height:6),
-              Wrap(spacing:7,runSpacing:6,children:scores.map((score){
-                final h=score['home']??'—',a=score['away']??'—';
-                return Container(padding:const EdgeInsets.symmetric(horizontal:8,vertical:6),
-                  decoration:BoxDecoration(color:const Color(0xFF171D2D),borderRadius:BorderRadius.circular(8)),
-                  child:Text('$h-$a  '+_forecastPercent(score['probability']),style:const TextStyle(color:Color(0xFFE2E5ED),fontSize:9,fontWeight:FontWeight.w800)));
-              }).toList()),
-            ]));
-        }),
-        const SizedBox(height:7),
-        Row(children:[
-          Expanded(child:Text('Qualità campione: '+(p['dataQuality']??'N/D').toString()+' · min '+(p['sampleMin']??'—').toString()+' gare per squadra',
-            style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,fontWeight:FontWeight.w800))),
-        ]),
-        if(service.feedStatus=='DEGRADED')Padding(
-          padding:const EdgeInsets.only(bottom:6),
-          child:Row(children:[
-            const Icon(Icons.warning_amber_rounded,color:Color(0xFFFFC857),size:12),
-            const SizedBox(width:4),
-            const Expanded(child:Text('FONTE DEGRADATA · PREVISIONE NON CONFERMATA',
-              style:TextStyle(color:Color(0xFFFFC857),fontSize:7.5,fontWeight:FontWeight.w900))),
-          ])),
-        const SizedBox(height:7),
-        Text((p['basis']??'Modello basato sui risultati recenti').toString(),
-          style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,height:1.35)),
-        const SizedBox(height:5),
-        Text('Aggiornata '+(updatedTime.isEmpty?'quando disponibili i dati':updatedTime)+
-          ' · revisioni pre-match '+revisions.toString(),
-          style:const TextStyle(color:Color(0xFF626B7D),fontSize:8)),
-      ]),
-    );
-  }
-
-  Widget _marketChip(String label,dynamic value){
-    final n=value is num?value.toDouble():double.tryParse((value??'').toString());
-    return Container(padding:const EdgeInsets.symmetric(horizontal:8,vertical:6),
-      decoration:BoxDecoration(color:const Color(0xFF171D2D),borderRadius:BorderRadius.circular(9),border:Border.all(color:Colors.white10)),
-      child:Text(label+' '+(n==null?'N/D':n.toStringAsFixed(1)+'%'),
-        style:const TextStyle(color:Color(0xFFB7BED0),fontSize:8,fontWeight:FontWeight.w900)));
-  }
-
-  Widget _gradedForecastCard(Map<String,dynamic> p){
-    final exact=p['ftExact']==true;
-    final htWasGraded=p['gradedHT']==true;
-    final actualFT=(p['actualHome']??'—').toString()+' - '+(p['actualAway']??'—').toString();
-    final predictedFT=(p['predFTHome']??'—').toString()+' - '+(p['predFTAway']??'—').toString();
-    final predictedHT=(p['predHTHome']??'—').toString()+' - '+(p['predHTAway']??'—').toString();
-    final actualHT=htWasGraded?(p['actualHTHome']??'—').toString()+' - '+(p['actualHTAway']??'—').toString():'non fornito dalla fonte';
-    final accent=exact?const Color(0xFF42E89A):const Color(0xFFFFC857);
-    return Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(12),
-      decoration:BoxDecoration(color:const Color(0xFF101522),borderRadius:BorderRadius.circular(15),
-        border:Border.all(color:accent.withValues(alpha:.25))),
-      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Row(children:[
-          Icon(exact?Icons.check_circle_rounded:Icons.school_rounded,color:accent,size:17),
-          const SizedBox(width:7),
-          Expanded(child:Text((p['home']??'Casa').toString()+' - '+(p['away']??'Ospite').toString(),
-            style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900))),
-          Text(exact?'ESATTO':'ERRORE REGISTRATO',
-            style:TextStyle(color:accent,fontSize:7.5,fontWeight:FontWeight.w900)),
-        ]),
-        const SizedBox(height:6),
-        Text('Finale previsto '+predictedFT+' · reale '+actualFT,
-          style:const TextStyle(color:Color(0xFFE2E5ED),fontSize:10,fontWeight:FontWeight.w800)),
-        const SizedBox(height:4),
-        Text('1° tempo previsto '+predictedHT+' · reale '+actualHT,
-          style:const TextStyle(color:Color(0xFF9299AD),fontSize:9)),
-        if(p['ft1x2Correct']==true)const Padding(padding:EdgeInsets.only(top:4),
-          child:Text('Esito 1X2 corretto, anche se il punteggio esatto non è stato centrato.',
-            style:TextStyle(color:Color(0xFF42E89A),fontSize:8))),
-        if(p['learningNote']!=null)Padding(padding:const EdgeInsets.only(top:6),
-          child:Text(p['learningNote'].toString(),
-            style:const TextStyle(color:Color(0xFF9299AD),fontSize:8,height:1.35))),
-        if(!htWasGraded)const Padding(padding:EdgeInsets.only(top:4),
-          child:Text('L’intervallo reale non è ancora disponibile nella fonte: resta non valutato.',
-            style:TextStyle(color:Color(0xFF626B7D),fontSize:8))),
-      ]),
-    );
-  }
-
-  Widget _ai(List<Match> signals, List<Match> strong, List<Match> marketSignals, bool upcomingFeed){
-    final total=matches.length;
-    final withStats=matches.where((m)=>m.stats.isNotEmpty).length;
-    final withAi=matches.where((m)=>m.status=='NS' && m.proposals.isNotEmpty && !m.proposals.every((p)=>p.contains('(market signal)'))).length;
-    final realStatValues=matches.fold<int>(0,(sum,m)=>sum+m.stats.length);
-    final updated=matches.isEmpty?null:DateTime.tryParse(matches.first.updatedAt)?.toLocal();
-    final age = updated == null ? 999 : DateTime.now().difference(updated).inMinutes;
-    final freshness = age < 0 ? 0.65 : (age <= 15 ? 1.0 : (age <= 60 ? 0.9 : 0.65));
-    final sourceProviders=<String>{};
-    void addSource(String source){
-      final s=source.toLowerCase();
-      if(s.contains('espn')) sourceProviders.add('ESPN');
-      if(s.contains('sofa')) sourceProviders.add('SofaScore');
-      if(s.contains('football-data')) sourceProviders.add('Football-Data');
-      if(s.contains('api-football')||s.contains('api-sports')) sourceProviders.add('API-Football');
-    }
-    for(final m in matches){
-      for(final src in m.sources){addSource(src);}
-      // The feed-level source can report an additional provider even when each
-      // individual fixture carries only its primary source tag.
-      addSource(m.source);
-    }
-    final sourceCount=sourceProviders.length;
-    final coverage=total==0?0.0:withStats/total;
-    final aiCoverage=total==0?0.0:withAi/total;
-    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-      _title('AI CENTER',upcomingFeed?'Analisi prossime partite':'Analisi e qualità dati'),
-      _matchSearchWidget(),
-      Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(22),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Row(children:[const Icon(Icons.psychology_alt_rounded,color:Color(0xFF9D91FF),size:28),const SizedBox(width:10),const Expanded(child:Text('Motore decisionale multi-fonte',style:TextStyle(fontSize:18,fontWeight:FontWeight.w900)))]),
-        const SizedBox(height:6),
-        const Text('La percentuale della previsione viene mostrata dentro ogni partita. Qui misuriamo qualità e copertura dei dati reali, senza trasformare le proiezioni in statistiche.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35)),
-        const SizedBox(height:14),
-        _metric('Partite con dati statistici',coverage),
-        _metric('Partite con analisi IA',aiCoverage),
-        _metric('Feed aggiornato',freshness),
-        const SizedBox(height:7),
-        Container(width:double.infinity,padding:const EdgeInsets.all(10),
-          decoration:BoxDecoration(
-            color:service.feedStatus=='DEGRADED'?const Color(0x22FFC857):const Color(0x0D42E89A),
-            borderRadius:BorderRadius.circular(11),
-            border:Border.all(color:service.feedStatus=='DEGRADED'?const Color(0x55FFC857):const Color(0x2242E89A))),
-          child:Row(children:[
-            Icon(service.feedStatus=='DEGRADED'?Icons.warning_amber_rounded:Icons.verified_rounded,
-              size:16,color:service.feedStatus=='DEGRADED'?const Color(0xFFFFC857):const Color(0xFF42E89A)),
-            const SizedBox(width:7),
-            Expanded(child:Text('Stato feed: '+service.feedStatus+
-              (service.feedStatus=='DEGRADED'?' · copertura ridotta: interpreta con cautela':' · verifica comunque la fonte della singola partita'),
-              style:TextStyle(color:service.feedStatus=='DEGRADED'?const Color(0xFFFFD36B):const Color(0xFF8FDDB6),fontSize:9,fontWeight:FontWeight.w800))),
-          ])),
-        const SizedBox(height:12),
-        Row(children:[
-          Expanded(child:_qualityBadge('STAT',withStats,total,Colors.cyan)),
-          const SizedBox(width:8),
-          Expanded(child:_qualityBadge('VALORI REALI',realStatValues,null,const Color(0xFF42E89A))),
-          const SizedBox(width:8),
-          Expanded(child:_qualityBadge('FONTI',sourceCount,null,const Color(0xFFA9A0FF))),
-        ]),
-        const SizedBox(height:12),
-        Text(marketSignals.isNotEmpty?'I segnali di mercato sono separati dalle previsioni IA. Le statistiche pre-match sono medie storiche quando indicate come MEDIA; i dati mancanti restano N/D.':'L’IA combina forma recente, scontri diretti e indicatori offensivi quando i dati sono disponibili. I valori stimati sono marcati come proiezioni.',style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4))
-      ])),
-      _title(strong.isNotEmpty?'⭐ Alta confidenza':'📊 Segnali migliori',strong.isNotEmpty?'Selezioni con evidenza forte':'Segnali disponibili · confidenza non forte'),
-      if(strong.isNotEmpty) ..._leagueSections(strong, _card) else ..._leagueSections(signals.take(6).toList(), _card),
-      if(marketSignals.isNotEmpty) ...[
-        _title('📈 Segnali mercato','Non classificati come IA forte'),
-        ..._leagueSections(marketSignals.take(4).toList(), _card),
-      ],
-      if(matches.isEmpty && calendarMatches.isNotEmpty) ...[
-        _title('📅 Prossime analisi','Partite selezionate'),
-        _empty('Nessuna proposta per oggi','Il motore aspetta dati statistici sufficienti. Le prossime partite sono già nel calendario e verranno analizzate quando il feed sarà disponibile.'),
-        ...calendarMatches.take(8).map(_calendarCard),
-      ],
-    ]);
-  }
-
-  Widget _matchSearchWidget(){
-    final query=_aiSearchQuery.trim().toLowerCase();
-    final byId=<String,Match>{};
-    for(final match in <Match>[...matches,...calendarMatches]){
-      final key=match.id>0?'id:'+match.id.toString():match.home.toLowerCase()+'|'+match.away.toLowerCase()+'|'+match.time;
-      byId.putIfAbsent(key,()=>match);
-    }
-    final all=byId.values.toList()..sort((a,b)=>(a.timestamp??0).compareTo(b.timestamp??0));
-    final filtered=all.where((m){
-      final haystack=(m.home+' '+m.away+' '+m.league+' '+m.time).toLowerCase();
-      final queryMatch=query.isEmpty||haystack.contains(query);
-      final statusMatch=switch(_aiSearchStatus){
-        'PROSSIME'=>m.status=='NS',
-        'LIVE'=>m.status=='LIVE',
-        'FINITE'=>m.status=='FT'||m.status=='FINISHED',
-        _=>true,
-      };
-      return queryMatch&&statusMatch;
-    }).take(20).toList();
-    Map<String,dynamic>? predictionFor(Match m){
-      for(final p in predictionRecords){
-        if(m.id>0 && (p['id'] as num?)?.toInt()==m.id && p['gradedFT']!=true) return p;
-      }
-      return null;
-    }
-    return Container(
-      margin:const EdgeInsets.only(bottom:12),
-      padding:const EdgeInsets.all(14),
-      decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0x558B7CFF))),
-      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Row(children:[
-          const Icon(Icons.travel_explore_rounded,color:Color(0xFF9D91FF),size:23),
-          const SizedBox(width:8),
-          const Expanded(child:Text('CERCA PARTITA · AI SCOUT',style:TextStyle(fontSize:13,fontWeight:FontWeight.w900,letterSpacing:.4))),
-          Text(all.length.toString(),style:const TextStyle(color:Color(0xFF9299AD),fontSize:10,fontWeight:FontWeight.w800)),
-        ]),
-        const SizedBox(height:10),
-        TextField(
-          onChanged:(value)=>setState(()=>_aiSearchQuery=value),
-          textInputAction:TextInputAction.search,
-          decoration:InputDecoration(
-            hintText:'Squadra, avversaria o campionato…',
-            hintStyle:const TextStyle(color:Color(0xFF747D91),fontSize:12),
-            prefixIcon:const Icon(Icons.search_rounded,color:Color(0xFFA9A0FF)),
-            suffixIcon:query.isEmpty?null:IconButton(tooltip:'Cancella ricerca',onPressed:()=>setState(()=>_aiSearchQuery=''),icon:const Icon(Icons.close_rounded,size:18)),
-            filled:true,fillColor:const Color(0xFF0B0F1A),
-            contentPadding:const EdgeInsets.symmetric(horizontal:12,vertical:12),
-            border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none),
-          ),
-        ),
-        const SizedBox(height:9),
-        Wrap(spacing:6,runSpacing:6,children:[
-          for(final item in <String>['TUTTE','PROSSIME','LIVE','FINITE'])
-            ChoiceChip(
-              label:Text(item,style:const TextStyle(fontSize:9,fontWeight:FontWeight.w800)),
-              selected:_aiSearchStatus==item,
-              onSelected:(_)=>setState(()=>_aiSearchStatus=item),
-              selectedColor:const Color(0xFF38305F),backgroundColor:const Color(0xFF171D2B),
-              side:BorderSide(color:_aiSearchStatus==item?const Color(0xFF9D91FF):Colors.white10),
-              visualDensity:VisualDensity.compact,
-            ),
-        ]),
-        if(query.isNotEmpty||_aiSearchStatus!='TUTTE')...[
-          const SizedBox(height:10),
-          Text(filtered.length.toString()+' RISULTATI · PRONOSTICO SUI DATI DISPONIBILI',style:const TextStyle(color:Color(0xFF9D91FF),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.4)),
-          if(filtered.isEmpty) const Padding(padding:EdgeInsets.only(top:12),child:Text('Nessuna partita trovata nel feed corrente e nel calendario. Aggiorna i dati oppure prova un altro nome.',style:TextStyle(color:Color(0xFF9299AD),fontSize:11))),
-          ...filtered.map((m){
-            final p=predictionFor(m);
-            final timestamp=m.timestamp;
-            final kick=timestamp==null?'':DateTime.fromMillisecondsSinceEpoch(timestamp*1000).toLocal().toString().substring(0,16);
-            final status=m.status=='LIVE'?'LIVE':(m.status=='FT'||m.status=='FINISHED'?'FINITA':m.time);
-            return Container(
-              margin:const EdgeInsets.only(top:8),padding:const EdgeInsets.all(11),
-              decoration:BoxDecoration(color:const Color(0xFF0B0F1A),borderRadius:BorderRadius.circular(13),border:Border.all(color:Colors.white10)),
-              child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-                Row(children:[
-                  Expanded(child:Text(m.league.toUpperCase(),style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900))),
-                  Text(status,style:const TextStyle(color:Color(0xFFFFC857),fontSize:9,fontWeight:FontWeight.w900)),
-                ]),
-                const SizedBox(height:5),
-                Text(m.home+'  vs  '+m.away,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w900)),
-                if(kick.isNotEmpty)Padding(padding:const EdgeInsets.only(top:3),child:Text(kick,style:const TextStyle(color:Color(0xFF7E879B),fontSize:9))),
-                if(p!=null)...[
-                  const Divider(height:14,color:Colors.white10),
-                  Row(children:[
-                    Expanded(child:Text('IA · '+(p['predFTHome']??'?').toString()+'-'+(p['predFTAway']??'?').toString(),style:const TextStyle(color:Color(0xFF42E89A),fontSize:12,fontWeight:FontWeight.w900))),
-                    Text('1 '+_forecastPercent(p['probHome'])+'  X '+_forecastPercent(p['probDraw'])+'  2 '+_forecastPercent(p['probAway']),style:const TextStyle(color:Color(0xFFB7BED0),fontSize:9,fontWeight:FontWeight.w800)),
-                  ]),
-                  Padding(padding:const EdgeInsets.only(top:4),child:Text('1° tempo '+(p['predHTHome']??'?').toString()+'-'+(p['predHTAway']??'?').toString()+' · campione '+(p['sampleMin']??'N/D').toString()+' · qualità '+(p['dataQuality']??'N/D').toString(),style:const TextStyle(color:Color(0xFF9299AD),fontSize:9))),
-                ]else
-                  const Padding(padding:EdgeInsets.only(top:5),child:Text('Pronostico non disponibile: dati storici insufficienti o partita non ancora analizzata.',style:TextStyle(color:Color(0xFF9299AD),fontSize:9))),
-              ]),
-            );
-          }),
-        ]else
-          const Padding(padding:EdgeInsets.only(top:9),child:Text('Cerca una squadra o un campionato per consultare le partite e il pronostico IA, quando i dati storici sono sufficienti.',style:TextStyle(color:Color(0xFF9299AD),fontSize:10,height:1.35))),
-      ]),
-    );
-  }
-
-  Widget _qualityBadge(String label,int value,int? total,Color color)=>Container(
-    padding:const EdgeInsets.symmetric(vertical:8),
-    decoration:BoxDecoration(color:color.withValues(alpha:.07),borderRadius:BorderRadius.circular(12),border:Border.all(color:color.withValues(alpha:.15))),
-    child:Column(children:[
-      Text(value.toString(),style:TextStyle(color:color,fontSize:15,fontWeight:FontWeight.w900)),
-      Text(label,style:const TextStyle(color:Color(0xFF697184),fontSize:7,fontWeight:FontWeight.w900)),
-      if(total!=null) Text(total==0?'—':'di $total',style:const TextStyle(color:Color(0xFF4F586B),fontSize:6)),
-    ])
-  );
-
-  List<Widget> _leagueSections(List<Match> items, Widget Function(Match) builder){
-    final groups=<String,List<Match>>{};
-    for(final m in items){ groups.putIfAbsent(m.league,()=>[]).add(m); }
-    final leagues=groups.keys.toList()..sort();
-    final out=<Widget>[];
-    for(final league in leagues){
-      out.add(Padding(padding:const EdgeInsets.fromLTRB(2,12,2,7),child:Row(children:[
-        const Icon(Icons.emoji_events_rounded,size:15,color:Color(0xFFA9A0FF)),
-        const SizedBox(width:7),
-        Expanded(child:Text(league.toUpperCase(),style:const TextStyle(fontSize:11,color:Color(0xFF9C96B8),fontWeight:FontWeight.w900,letterSpacing:.7))),
-        Text(groups[league]!.length.toString()+' partite',style:const TextStyle(fontSize:9,color:Color(0xFF6F7687))),
-      ])));
-      out.addAll(groups[league]!.map(builder));
-    }
-    return out;
-  }
-  Widget _metric(String n,double v)=>Padding(padding:const EdgeInsets.only(bottom:11),child:Row(children:[Expanded(child:Text(n,style:const TextStyle(fontSize:12))),Text('${(v*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w800,color:Color(0xFF42E89A)))]));
-  Widget _title(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(2,22,2,9),child:Row(children:[Expanded(child:Text(a,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),Text(b,style:const TextStyle(fontSize:9,color:Color(0xFF7E8598)))]));
-
-  Widget _card(Match m){
-    final parts=m.time.split('|');
-    final displayDate=parts.length>1?parts.first:'';
-    final displayTime=parts.length>1?parts.last:m.time;
-    final headerTime=m.live?'LIVE':(m.status=='FT'?'FT':(displayDate.isNotEmpty?displayDate+' '+displayTime:displayTime));
-    final scoreText=m.status!='NS'&&m.hs!=null&&m.ascore!=null?m.hs.toString()+' - '+m.ascore.toString():displayTime;
-    final accent=m.live?const Color(0xFFFF5D73):(m.confidence>=80?const Color(0xFF42E89A):(m.confidence>=60?const Color(0xFFFFC857):const Color(0xFF9D91FF)));
-    return GestureDetector(
-      onTap:()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xFF080B14),builder:(_)=>_Detail(m)),
-      child:Container(
-        margin:const EdgeInsets.only(bottom:12),
-        padding:const EdgeInsets.fromLTRB(14,13,14,14),
-        decoration:BoxDecoration(color:const Color(0xE30F1422),borderRadius:BorderRadius.circular(24),border:Border.all(color:accent.withValues(alpha:.24)),boxShadow:[BoxShadow(color:accent.withValues(alpha:.035),blurRadius:18,spreadRadius:1)]),
-        child:Column(children:[
-          Row(children:[
-            Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:accent.withValues(alpha:.09),borderRadius:BorderRadius.circular(9),border:Border.all(color:accent.withValues(alpha:.18))),child:Text(m.league.toUpperCase(),style:TextStyle(fontSize:8,color:accent,fontWeight:FontWeight.w900,letterSpacing:.8))),
-            const Spacer(),Icon(m.live?Icons.circle:Icons.schedule_rounded,size:9,color:accent),const SizedBox(width:5),Text(headerTime,style:TextStyle(fontSize:9,color:accent,fontWeight:FontWeight.w900))
-          ]),
-          const SizedBox(height:14),
-          Row(children:[
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              Text(m.home,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900)),
-              const SizedBox(height:4),
-              Text(_statText(m.stats['homeShots'])+' Tiri  •  '+_statText(m.stats['homeOn'])+' Porta',style:const TextStyle(color:Color(0xFF727B8E),fontSize:8,fontWeight:FontWeight.w800))
-            ])),
-            Container(width:72,padding:const EdgeInsets.symmetric(vertical:10),decoration:BoxDecoration(color:const Color(0x10141D2B),borderRadius:BorderRadius.circular(16),border:Border.all(color:Colors.white10)),child:Column(children:[Text(scoreText,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w900)),const SizedBox(height:2),const Text('VS',style:TextStyle(fontSize:7,color:Color(0xFF60687A),fontWeight:FontWeight.w900))])),
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[
-              Text(m.away,maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.right,style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900)),
-              const SizedBox(height:4),
-              Text(_statText(m.stats['awayShots'])+' Tiri  •  '+_statText(m.stats['awayOn'])+' Porta',textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFF727B8E),fontSize:8,fontWeight:FontWeight.w800))
-            ]))
-          ]),
-          if(m.stats.isNotEmpty)...[
-            const SizedBox(height:12),
-            Row(children:[
-              _miniCardStat('TIRI',m.stats['homeShots'],m.stats['awayShots']),
-              const SizedBox(width:6),_miniCardStat('PORTA',m.stats['homeOn'],m.stats['awayOn']),
-              const SizedBox(width:6),_miniCardStat('FALLI',m.stats['homeFouls'],m.stats['awayFouls']),
-              const SizedBox(width:6),_miniCardStat('ANGOLI',m.stats['homeCorners'],m.stats['awayCorners'])
-            ])
-          ],
-          if(m.status=='NS' && (m.aiHomeProb+m.aiDrawProb+m.aiAwayProb)>0)...[
-            const SizedBox(height:9),
-            _probabilityStrip(m),
-          ],
-          const SizedBox(height:12),
-          Row(children:[
-            Expanded(child:Container(padding:const EdgeInsets.symmetric(horizontal:11,vertical:10),decoration:BoxDecoration(gradient:LinearGradient(colors:[accent.withValues(alpha:.12),accent.withValues(alpha:.04)]),borderRadius:BorderRadius.circular(14),border:Border.all(color:accent.withValues(alpha:.20))),child:Row(children:[Icon(m.proposals.isEmpty?Icons.insights_rounded:Icons.local_fire_department_rounded,size:15,color:accent),const SizedBox(width:7),Expanded(child:Text(m.pick,maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(color:accent,fontSize:10,fontWeight:FontWeight.w900)))]))),
-            const SizedBox(width:9),_confidence(m.confidence)
-          ])
-        ])
-      )
-    );
-  }
-
-  Widget _probabilityStrip(Match m)=>Container(
-    padding:const EdgeInsets.symmetric(horizontal:10,vertical:8),
-    decoration:BoxDecoration(
-      color:const Color(0x0C42E89A),
-      borderRadius:BorderRadius.circular(11),
-      border:Border.all(color:const Color(0x1942E89A)),
-    ),
-    child:Row(children:[
-      const Icon(Icons.psychology_alt_rounded,size:13,color:Color(0xFF42E89A)),
-      const SizedBox(width:6),
-      const Text('IA 1X2',style:TextStyle(color:Color(0xFF7D879A),fontSize:7,fontWeight:FontWeight.w900,letterSpacing:.5)),
-      const SizedBox(width:8),
-      Expanded(child:Text('1 ${m.aiHomeProb}%  •  X ${m.aiDrawProb}%  •  2 ${m.aiAwayProb}%',textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFFE2E5EB),fontSize:9,fontWeight:FontWeight.w900))),
-    ])
-  );
-
-  Widget _miniCardStat(String label,dynamic h,dynamic a)=>Expanded(child:Container(
-    padding:const EdgeInsets.symmetric(vertical:7,horizontal:3),
-    decoration:BoxDecoration(color:const Color(0x0BFFFFFF),borderRadius:BorderRadius.circular(10)),
-    child:Column(children:[Text(_statText(h)+' • '+_statText(a),style:const TextStyle(fontSize:9,fontWeight:FontWeight.w900)),const SizedBox(height:2),Text(label,style:const TextStyle(fontSize:6,color:Color(0xFF737C8F),fontWeight:FontWeight.w900,letterSpacing:.4))])
-  ));
-
-
-  String _statText(dynamic value){
-    if(value==null)return '—';
-    if(value is num){
-      final d=value.toDouble();
-      return d%1==0?d.toInt().toString():d.toStringAsFixed(1);
-    }
-    final d=double.tryParse(value.toString().replaceAll('%','').replaceAll(',','.'));
-    if(d==null)return '—';
-    return d%1==0?d.toInt().toString():d.toStringAsFixed(1);
-  }
-
-  Widget _confidence(int n){ final color=n>=80?const Color(0xFF42E89A):(n>=60?const Color(0xFFFFC857):const Color(0xFF8B7CFF)); return Container(width:52,height:52,decoration:BoxDecoration(shape:BoxShape.circle,border:Border.all(color:color,width:2)),child:Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:TextStyle(fontSize:12,fontWeight:FontWeight.w900,color:color)),Text(n==0?'INDEX':n>=80?'FORTE':n>=60?'MEDIA':'BASSA',style:TextStyle(fontSize:6,color:color,fontWeight:FontWeight.w800))]))); }
-  Widget _orb(int n)=>Container(width:78,height:78,decoration:const BoxDecoration(shape:BoxShape.circle,gradient:SweepGradient(colors:[Color(0xFF8B7CFF),Color(0xFF39D9FF),Color(0xFF42E89A),Color(0xFF8B7CFF)])),child:Center(child:Container(width:64,height:64,decoration:const BoxDecoration(shape:BoxShape.circle,color:Color(0xFF0B0F1C)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Text(n==0?'—':'$n',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const Text('AI INDEX',style:TextStyle(fontSize:7,color:Color(0xFF8D95A8)))]))));
-  Widget _empty(String a,String b)=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:const Color(0xCC121725),borderRadius:BorderRadius.circular(20)),child:Column(children:[const Icon(Icons.shield_outlined,color:Color(0xFF8B7CFF),size:38),const SizedBox(height:9),Text(a,style:const TextStyle(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text(b,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11))]));
-  Widget _nav()=>Container(padding:const EdgeInsets.fromLTRB(4,7,4,7),decoration:BoxDecoration(color:const Color(0xE80A0D17),border:Border(top:BorderSide(color:Colors.white10))),child:Row(children:[_navButton(0,Icons.home_rounded,'Oggi'),_navButton(1,Icons.calendar_month_rounded,'Calendario'),_navButton(2,Icons.sports_soccer_rounded,'Partite'),_navButton(3,Icons.scoreboard_rounded,'Pronost.'),_navButton(4,Icons.auto_awesome,'AI')]));
-
-  Widget _navButton(int i,IconData icon,String label)=>Expanded(child:GestureDetector(onTap:()=>setState(()=>tab=i),child:Container(padding:const EdgeInsets.symmetric(vertical:8),decoration:BoxDecoration(color:tab==i?const Color(0x188B7CFF):Colors.transparent,borderRadius:BorderRadius.circular(14)),child:Column(children:[Icon(icon,size:20,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687)),const SizedBox(height:3),Text(label,style:TextStyle(fontSize:9,color:tab==i?const Color(0xFFA9A0FF):const Color(0xFF6F7687),fontWeight:FontWeight.w800))]))));
-
-  Widget _calendar(){
-    final groups=<String,List<Match>>{};
-    for(final m in globalCalendarMatches){
-      if(m.status=='FT') continue;
-      final raw=m.time.split('|').first;
-      if(!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw)) continue;
-      groups.putIfAbsent(raw,()=>[]).add(m);
-    }
-    final days=groups.keys.toList()..sort();
-    return ListView(padding:const EdgeInsets.fromLTRB(16,8,16,20),children:[
-      const Text('Calendario',style:TextStyle(fontSize:26,fontWeight:FontWeight.w900)),
-      const SizedBox(height:4),
-      const Text('Prossime partite dei campionati selezionati',style:TextStyle(color:Color(0xFF9299AD),fontSize:12)),
-      const SizedBox(height:4),
-      const Text('Oggi + prossimi 14 giorni',style:TextStyle(color:Color(0xFF6F7687),fontSize:10)),
-      const SizedBox(height:14),
-      if(days.isEmpty) const Padding(padding:EdgeInsets.only(top:80),child:Center(child:Text('Nessuna prossima partita disponibile',style:TextStyle(fontWeight:FontWeight.w800)))),
-      for(final day in days)...[
-        Padding(padding:const EdgeInsets.only(top:14,bottom:8),child:Text(day,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
-        ...groups[day]!.map((m){
-          final parts=m.time.split('|');
-          final time=parts.length>1 ? parts.last : m.time;
-          return Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF0F1422),borderRadius:BorderRadius.circular(18)),child:Row(children:[
-            SizedBox(width:60,child:Text(time,style:const TextStyle(color:Color(0xFFA9A0FF),fontWeight:FontWeight.w900))),
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              Text(m.league.toUpperCase(),style:const TextStyle(fontSize:8,color:Color(0xFF7F879B),fontWeight:FontWeight.w800)),
-              const SizedBox(height:4),Text(m.home,style:const TextStyle(fontWeight:FontWeight.w800)),Text(m.away,style:const TextStyle(fontWeight:FontWeight.w800))
-            ]))
-          ]));
-        })
-      ]
-    ]);
-  }
-}
-
-class _Detail extends StatefulWidget {
-  final Match m;
-  const _Detail(this.m);
-  @override State<_Detail> createState()=>_DetailState();
-}
-
-class _DetailState extends State<_Detail> {
-  bool loadingStats=true;
-  Map<String,dynamic> detailStats={};
-  Map<String,dynamic> aiContext={};
-  List<Map<String,dynamic>> h2hResults=[];
-  String statsSource='';
-  String statsStatus='';
-  String statCategory='TUTTO';
+class _PredictionHomeState extends State<PredictionHome> {
+  final engine = SuperPredictionEngine();
+  List<Map<String, dynamic>> matches = [];
+  List<Map<String, dynamic>> history = [];
+  bool loading = true;
+  String feedStatus = 'CARICAMENTO';
+  String source = 'Fonte da verificare';
+  String filter = 'Tutte';
+  int tab = 0;
+  String error = '';
 
   @override
-  void initState() {
-    super.initState();
-    _loadStats();
+  void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    setState(() { loading = true; error = ''; });
+    try {
+      final latestText = await rootBundle.loadString('data/latest.json');
+      final historyText = await rootBundle.loadString('data/results.json');
+      var latest = jsonDecode(latestText) as Map<String, dynamic>;
+      var hist = jsonDecode(historyText) as Map<String, dynamic>;
+      try {
+        final response = await http.get(Uri.parse('https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/latest.json')).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) latest = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (_) {}
+      try {
+        final response = await http.get(Uri.parse('https://raw.githubusercontent.com/anonimatoxx11xx-dev/match-ai-pro/main/data/results.json')).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) hist = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (_) {}
+      final rawMatches = (latest['matches'] as List? ?? const []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).where((m) =>
+        const {'NS','SCHEDULED','NOT STARTED'}.contains((m['status'] ?? '').toString().toUpperCase()) ||
+        m['status'] == null).toList();
+      final rawHistory = (hist['results'] as List? ?? const []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+      final predictions = engine.predict(fixtures: rawMatches, history: rawHistory);
+      predictions.sort((a,b) {
+        final pa = _prediction(a), pb = _prediction(b);
+        final scoreA = ((_num(pa['quality']) ?? 0) * .45) + _topProb(pa) * .55;
+        final scoreB = ((_num(pb['quality']) ?? 0) * .45) + _topProb(pb) * .55;
+        return scoreB.compareTo(scoreA);
+      });
+      if (!mounted) return;
+      setState(() {
+        matches = predictions;
+        history = rawHistory;
+        feedStatus = (latest['feedStatus'] ?? 'SCONOSCIUTO').toString();
+        source = (latest['source'] ?? 'Fonte non dichiarata').toString();
+        loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { loading = false; error = 'Impossibile leggere i dati della partita.'; });
+    }
   }
 
-  Future<void> _loadStats() async {
-    if(mounted)setState(()=>loadingStats=true);
-    final results=await Future.wait([_fetchStats(widget.m),_fetchH2HAndPrediction(widget.m)]);
-    if(!mounted)return;
-    final statsResult=Map<String,dynamic>.from(results[0] as Map);
-    final intel=Map<String,dynamic>.from(results[1] as Map);
-    final ctx=intel['aiContext']; final h2h=intel['h2h'];
-    setState((){
-      detailStats=statsResult['stats'] is Map?Map<String,dynamic>.from(statsResult['stats']):<String,dynamic>{};
-      aiContext=ctx is Map?Map<String,dynamic>.from(ctx):<String,dynamic>{};
-      h2hResults=h2h is List?h2h.whereType<Map>().map((e)=>Map<String,dynamic>.from(e)).toList():<Map<String,dynamic>>[];
-      statsSource=(statsResult['source']?.toString()??'')+(intel['source']?.toString().isNotEmpty==true?' + '+intel['source'].toString():'');
-      statsStatus=detailStats.isEmpty?'Nessun dato dettagliato disponibile':(['homeShots','homeOn','homeCorners','homeFouls','homeThrow','homeSaves','homeYellow','homeRed','homeOffsides','homeBlocked','homeTackles','homeClearances','homePossession'].where((key)=>_number(detailStats[key])!=null||_number(detailStats[key.replaceFirst('home','away')])!=null).length).toString()+' categorie con dati';
-      loadingStats=false;
-    });
-  }
+  Map<String,dynamic> _prediction(Map<String,dynamic> m) => m['prediction'] is Map ? Map<String,dynamic>.from(m['prediction']) : <String,dynamic>{};
+  double _topProb(Map<String,dynamic> p) => [_num(p['home']) ?? 0, _num(p['draw']) ?? 0, _num(p['away']) ?? 0].reduce((a,b) => a > b ? a : b);
+  double? _num(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '');
+  String _s(dynamic v) => v?.toString() ?? '';
+  List<String> get leagues => ['Tutte', ...matches.map((m) => _s(m['league'])).where((s) => s.isNotEmpty).toSet().toList()..sort()];
+  List<Map<String,dynamic>> get filtered => filter == 'Tutte' ? matches : matches.where((m) => m['league'] == filter).toList();
+  List<Map<String,dynamic>> get strongest => matches.where((m) => (_num(_prediction(m)['quality']) ?? 0) >= 45).take(6).toList();
 
-
-  Future<Map<String,dynamic>> _fetchH2HAndPrediction(Match m) async {
-    final h2h=<Map<String,dynamic>>[];
-    final ai=<String,dynamic>{};
-    int? homeId, awayId;
-    if(m.status!='NS' || m.id<=0)return {'h2h':h2h,'aiContext':ai,'source':''};
-
-    double? n(dynamic v){
-      if(v is num)return v.toDouble();
-      final s=v?.toString().replaceAll('%','').replaceAll(',','.');
-      final d=double.tryParse(s??''); if(d!=null)return d;
-      final x=RegExp(r'-?\d+(?:\.\d+)?').firstMatch(s??''); return x==null?null:double.tryParse(x.group(0)!);
-    }
-
-    String normalizeTeam(String value)=>value.toLowerCase()
-      .replaceAll(RegExp(r'\b(football club|soccer club|fc|afc|cf|sc|club|the)\b'),' ')
-      .replaceAll(RegExp(r'[^a-z0-9]'),'');
-    Future<int?> findSofaTeamId(String name) async {
-      try{
-        final response=await http.get(
-          Uri.parse('https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name)),
-          headers:const {'Accept':'application/json'},
-        ).timeout(const Duration(seconds:8));
-        if(response.statusCode!=200)return null;
-        final payload=jsonDecode(response.body);
-        final results=payload is Map?payload['results']:null;
-        if(results is! List)return null;
-        final target=normalizeTeam(name);
-        final candidates=<int>[];
-        for(final row in results.whereType<Map>()){
-          final entity=row['entity'];
-          if(entity is! Map||entity['id']==null)continue;
-          final type=(row['type']??entity['type']??'').toString().toLowerCase();
-          final sport=entity['sport'];
-          final slug=sport is Map?(sport['slug']??'').toString().toLowerCase():'';
-          if(type!='team'&&type!='teams'&&slug!='football')continue;
-          final candidate=normalizeTeam((entity['name']??'').toString());
-          final id=int.tryParse(entity['id'].toString());
-          if(id==null||candidate.isEmpty)continue;
-          if(candidate==target)return id;
-          if(target.length>=6&&candidate.length>=6&&
-              (candidate.contains(target)||target.contains(candidate)))candidates.add(id);
-        }
-        return candidates.length==1?candidates.single:null;
-      }catch(_){return null;}
-    }
-    Map<String,dynamic>? parseFeedForm(String side){
-      final prefix=side=='home'?'Forma casa:':'Forma ospiti:';
-      for(final line in m.preMatchStats){
-        if(!line.toLowerCase().startsWith(prefix.toLowerCase()))continue;
-        final match=RegExp(
-          r'Forma\s+(?:casa|ospiti):\s*(\d+)\s*V\s+(\d+)\s*N\s+(\d+)\s*P\s*[·•]\s*(\d+)\s*-\s*(\d+)\s*gol(?:\s*[·•]\s*(\d+)\s*/\s*(\d+)\s*pt)?',
-          caseSensitive:false,
-        ).firstMatch(line);
-        if(match==null)continue;
-        final w=int.tryParse(match.group(1)??'')??0;
-        final d=int.tryParse(match.group(2)??'')??0;
-        final l=int.tryParse(match.group(3)??'')??0;
-        final gf=int.tryParse(match.group(4)??'')??0;
-        final ga=int.tryParse(match.group(5)??'')??0;
-        final games=w+d+l;
-        if(games==0)return null;
-        return <String,dynamic>{
-          'w':w,'d':d,'l':l,'gf':gf,'ga':ga,'games':games,
-          'rate':(w*3+d)/(games*3.0),
-          'source':'ESPN · riepilogo forma pre-match',
-        };
-      }
-      return null;
-    }
-    homeId=await findSofaTeamId(m.home);
-    awayId=await findSofaTeamId(m.away);
-
-    Future<List<Map<String,dynamic>>> recent(int? id) async {
-      if(id==null)return <Map<String,dynamic>>[];
-      try{
-        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/team/$id/events/last/0'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
-        if(res.statusCode!=200)return <Map<String,dynamic>>[];
-        final data=jsonDecode(res.body); final events=data is Map?data['events']:null;
-        if(events is! List)return <Map<String,dynamic>>[];
-        return events.whereType<Map>().where((e){
-          final st=e['status']; final t=st is Map?st['type']?.toString().toLowerCase():'';
-          return t=='finished'||t=='ended'||t=='afterextra'||t=='afterpenalties';
-        }).take(6).map((e)=>Map<String,dynamic>.from(e)).toList();
-      }catch(_){return <Map<String,dynamic>>[];}
-    }
-
-    final forms=await Future.wait([recent(homeId),recent(awayId)]);
-    Map<String,dynamic> formFor(int id,List<Map<String,dynamic>> events,String side){
-      var w=0,d=0,l=0,gf=0,ga=0;
-      for(final e in events){
-        final status=e['status'];
-        final type=status is Map?(status['type']??'').toString().toLowerCase():'';
-        if(type!='finished'&&type!='ended'&&type!='afterextra'&&type!='afterpenalties')continue;
-        final ht=e['homeTeam'];
-        final hid=ht is Map?int.tryParse(ht['id']?.toString()??''):null;
-        final ih=hid==id;
-        final homeScore=e['homeScore'] is Map?e['homeScore']['current']:e['homeScore'];
-        final awayScore=e['awayScore'] is Map?e['awayScore']['current']:e['awayScore'];
-        final hs=n(homeScore)?.round(),as=n(awayScore)?.round();
-        if(hs==null||as==null)continue;
-        gf+=ih?hs:as; ga+=ih?as:hs;
-        if((ih&&hs>as)||(!ih&&as>hs))w++; else if(hs==as)d++; else l++;
-      }
-      final g=w+d+l, points=w*3+d;
-      if(g>=2)return {'w':w,'d':d,'l':l,'gf':gf,'ga':ga,'games':g,'rate':points/(g*3.0),'source':'SofaScore · risultati squadra'};
-      return parseFeedForm(side)??{'w':0,'d':0,'l':0,'gf':0,'ga':0,'games':0,'rate':0.0,'source':'Nessun campione verificabile'};
-    }
-    final hf=formFor(homeId??-1,forms[0],'home');
-    final af=formFor(awayId??-1,forms[1],'away');
-
-    // Event IDs are provider-specific. Do not call the SofaScore H2H endpoint
-    // with the ESPN fixture ID; intersect each team's SofaScore event history.
-    final awayEventIds=forms[1].map((e)=>int.tryParse(e['id']?.toString()??'')).whereType<int>().toSet();
-    for(final event in forms[0]){
-      final eventId=int.tryParse(event['id']?.toString()??'');
-      if(eventId==null||!awayEventIds.contains(eventId))continue;
-      final status=event['status'];
-      final type=status is Map?(status['type']??'').toString().toLowerCase():'';
-      if(type!='finished'&&type!='ended'&&type!='afterextra'&&type!='afterpenalties')continue;
-      final homeScore=event['homeScore'] is Map?event['homeScore']['current']:event['homeScore'];
-      final awayScore=event['awayScore'] is Map?event['awayScore']['current']:event['awayScore'];
-      final hs=n(homeScore)?.round(),as=n(awayScore)?.round();
-      final ht=event['homeTeam'],at=event['awayTeam'];
-      if(hs==null||as==null||ht is! Map||at is! Map)continue;
-      final homeName=(ht['name']??'').toString(),awayName=(at['name']??'').toString();
-      final start=n(event['startTimestamp']);
-      final date=start==null?'':DateTime.fromMillisecondsSinceEpoch(start.toInt()*1000).toLocal().toIso8601String().split('T').first;
-      h2h.add({'home':homeName,'away':awayName,'hs':hs,'as':as,'date':date,'winner':hs>as?'home':(as>hs?'away':'draw')});
-    }
-
-    final homeGames=hf['games'] as int;
-    final awayGames=af['games'] as int;
-    if(homeGames<2||awayGames<2){
-      // No invented baseline: hide the probability panel until both teams have
-      // at least two sourced recent matches or a feed form summary.
-      return {'h2h':h2h,'aiContext':ai,'source':(hf['source']??'').toString()+' · '+(af['source']??'').toString()};
-    }
-
-    double? stat(String key)=>n(m.stats[key]);
-    final hs=stat('homeShots');
-    final awayShotsValue=stat('awayShots');
-    final hon=stat('homeOn');
-    final aon=stat('awayOn');
-    final homeScored=(hf['gf'] as int)/homeGames;
-    final homeConceded=(hf['ga'] as int)/homeGames;
-    final awayScored=(af['gf'] as int)/awayGames;
-    final awayConceded=(af['ga'] as int)/awayGames;
-
-    // Count historic head-to-head outcomes from the perspective of these two
-    // current teams. The home/away orientation can be reversed in old matches.
-    String teamKey(String value)=>value.toLowerCase()
-      .replaceAll(RegExp(r'\b(football club|soccer club|fc|afc|cf|sc|club|the)\b'),' ')
-      .replaceAll(RegExp(r'[^a-z0-9]'),'');
-    bool sameTeam(String a,String b){
-      final left=teamKey(a),right=teamKey(b);
-      return left.isNotEmpty&&right.isNotEmpty&&
-        (left==right||(left.length>=5&&right.length>=5&&(left.contains(right)||right.contains(left))));
-    }
-    var hh=0,hd=0,ha=0;
-    var h2hHomeGoals=0,h2hAwayGoals=0,h2hUsed=0;
-    for(final e in h2h){
-      final eh=(e['home']??'').toString();
-      final ea=(e['away']??'').toString();
-      final sh=(e['hs'] as num?)?.toInt();
-      final sa=(e['as'] as num?)?.toInt();
-      if(sh==null||sa==null)continue;
-      int? homeGoals,awayGoals;
-      if(sameTeam(m.home,eh)&&sameTeam(m.away,ea)){
-        homeGoals=sh;awayGoals=sa;
-      }else if(sameTeam(m.home,ea)&&sameTeam(m.away,eh)){
-        homeGoals=sa;awayGoals=sh;
-      }else{continue;}
-      h2hUsed++;h2hHomeGoals+=homeGoals;h2hAwayGoals+=awayGoals;
-      if(homeGoals>awayGoals)hh++;else if(homeGoals<awayGoals)ha++;else hd++;
-    }
-
-    var homeLambda=((homeScored*.58+awayConceded*.42)*1.06).clamp(.10,4.0).toDouble();
-    var awayLambda=((awayScored*.58+homeConceded*.42)*.94).clamp(.10,4.0).toDouble();
-    // H2H has a small, capped influence; recent goal form remains dominant.
-    if(h2hUsed>=3){
-      final oldHomeGoals=h2hHomeGoals/h2hUsed;
-      final oldAwayGoals=h2hAwayGoals/h2hUsed;
-      homeLambda=(homeLambda*.88+oldHomeGoals*.12).clamp(.10,4.0).toDouble();
-      awayLambda=(awayLambda*.88+oldAwayGoals*.12).clamp(.10,4.0).toDouble();
-    }
-
-    List<double> poisson(double lambda,int max){
-      final values=<double>[math.exp(-lambda)];
-      for(var goals=1;goals<=max;goals++){
-        values.add(values[goals-1]*lambda/goals);
-      }
-      return values;
-    }
-    final homeDist=poisson(homeLambda,8);
-    final awayDist=poisson(awayLambda,8);
-    var homeP=0.0,drawP=0.0,awayP=0.0;
-    for(var h=0;h<homeDist.length;h++){
-      for(var a=0;a<awayDist.length;a++){
-        final probability=homeDist[h]*awayDist[a];
-        if(h>a)homeP+=probability;else if(h==a)drawP+=probability;else awayP+=probability;
-      }
-    }
-    final totalP=homeP+drawP+awayP;
-    if(totalP<=0)return {'h2h':h2h,'aiContext':ai,'source':''};
-    final homeProb=(homeP/totalP*100).round();
-    final drawProb=(drawP/totalP*100).round();
-    final awayProb=100-homeProb-drawProb;
-    final pick=homeProb>=awayProb&&homeProb>=drawProb?m.home+' vincente':
-      (awayProb>=homeProb&&awayProb>=drawProb?m.away+' vincente':'Pareggio');
-    final conf=math.max(homeProb,math.max(drawProb,awayProb));
-
-    ai.addAll({
-      'homeProb':homeProb,'drawProb':drawProb,'awayProb':awayProb,
-      'pick':pick,'confidence':conf,
-      'homeForm':hf['rate'],'awayForm':af['rate'],
-      'h2hHome':hh,'h2hDraw':hd,'h2hAway':ha,
-      'homeShots':hs,'awayShots':awayShotsValue,'homeOn':hon,'awayOn':aon,
-      'homeCorners':stat('homeCorners'),'awayCorners':stat('awayCorners'),
-      'homeFouls':stat('homeFouls'),'awayFouls':stat('awayFouls'),
-      'homeGoals':homeScored,'awayGoals':awayScored,
-      'homeRecent':hf,'awayRecent':af,
-      'sampleHome':homeGames,'sampleAway':awayGames,'sampleH2H':h2hUsed,
-      'expectedHomeGoals':homeLambda,'expectedAwayGoals':awayLambda,
-      'model':'Poisson · gol recenti fatti/subiti'+(h2hUsed>=3?' + H2H attenuato':''),
-    });
-    final formSource=((hf['source']??'').toString().isEmpty?'forma non identificata':hf['source'].toString())+' + '+((af['source']??'').toString().isEmpty?'forma non identificata':af['source'].toString());
-    return {'h2h':h2h,'aiContext':ai,'source':formSource+(h2hUsed>0?' + H2H verificato':'')};
-  }
-
-  Future<Map<String,dynamic>> _fetchStats(Match m) async {
-    final out=<String,dynamic>{};
-    var source='';
-    // Pre-match averages from the shared feed may be stale or provider-mismatched.
-    // Recompute them from the selected teams' own finished SofaScore events.
-    if(m.stats.isNotEmpty){
-      out.addAll(m.stats);
-      source=m.status=='NS'
-          ? (m.statsSource.isNotEmpty ? m.statsSource : 'Feed · medie storiche pre-match')
-          : 'Feed · statistiche evento';
-    }
-    // Do not pass a SofaScore event ID to ESPN: provider event IDs are
-    // unrelated, and ESPN may return statistics for a different fixture.
-    // Historical pre-match averages are loaded below; live/event stats use
-    // the matching SofaScore event endpoint only.
-
-    Future<void> trySofaCurrent() async {
-      if(m.id<=0)return;
-      try{
-        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+m.id.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return;
-        final data=jsonDecode(res.body); final periods=data is Map?data['statistics']:null;
-        if(periods is! List)return;
-        Map? all; for(final p in periods){if(p is Map && p['period']=='ALL'){all=p;break;}}
-        if(all==null)return;
-        final groups=all['groups']; if(groups is! List)return;
-        final items=<Map>[]; for(final g in groups){if(g is Map && g['statisticsItems'] is List)items.addAll((g['statisticsItems'] as List).whereType<Map>());}
-        String statKey(dynamic value)=>value.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');
-        int? val(Map x,String side){
-          final raw=x[side+'Value']??x[side];
-          if(raw is num)return raw.round();
-          final match=RegExp(r'-?\d+(?:\.\d+)?').firstMatch(raw?.toString()??'');
-          return match==null?null:double.tryParse(match.group(0)!)?.round();
-        }
-        void pair(Set<String> names,String h,String a){
-          final wanted=names.map(statKey).toSet();
-          for(final item in items){
-            final k=statKey(item['key']??'');final n=statKey(item['name']??'');
-            if(!wanted.contains(k)&&!wanted.contains(n))continue;
-            final hv=val(item,'home');final av=val(item,'away');
-            if(hv==null||av==null||hv<0||av<0)continue;
-            final double maxValue;
-            if(h.endsWith('Shots')) {
-              maxValue=45;
-            } else if(h.endsWith('On')) {
-              maxValue=30;
-            } else if(h.endsWith('Corners')) {
-              maxValue=25;
-            } else if(h.endsWith('Fouls')) {
-              maxValue=60;
-            } else if(h.endsWith('Throw')) {
-              maxValue=80;
-            } else if(h.endsWith('Saves')) {
-              maxValue=25;
-            } else if(h.endsWith('Yellow')) {
-              maxValue=12;
-            } else if(h.endsWith('Red')) {
-              maxValue=5;
-            } else if(h.endsWith('Possession')) {
-              maxValue=100;
-            } else {
-              maxValue=100;
-            }
-            if(hv>maxValue||av>maxValue)continue;
-            if(h=='homeOn' && out['homeShots'] is num && hv>(out['homeShots'] as num))continue;
-            if(a=='awayOn' && out['awayShots'] is num && av>(out['awayShots'] as num))continue;
-            out[h]=hv;out[a]=av;break;
-          }
-        }
-        pair({'totalshots','shots'},'homeShots','awayShots'); pair({'shotsontarget','shots on target','shotsongoal'},'homeOn','awayOn'); pair({'cornerkicks','corners'},'homeCorners','awayCorners');
-        pair({'fouls'},'homeFouls','awayFouls'); pair({'throwins','throw-ins','throw ins'},'homeThrow','awayThrow'); pair({'goalkeepersaves','saves'},'homeSaves','awaySaves');
-        pair({'yellowcards','yellow cards'},'homeYellow','awayYellow'); pair({'redcards','red cards'},'homeRed','awayRed');
-        pair({'offsides','offside'},'homeOffsides','awayOffsides'); pair({'blockedshots','blocked shots','shotsblocked'},'homeBlocked','awayBlocked');
-        pair({'tackles'},'homeTackles','awayTackles'); pair({'clearances'},'homeClearances','awayClearances');
-        pair({'ballpossession','possession','possessionpercentage'},'homePossession','awayPossession');
-        if(out.isNotEmpty)source=source.isEmpty?'SofaScore':source+' + SofaScore';
-      }catch(_){ }
-    }
-    // Fixture IDs are provider-specific. Only query SofaScore live statistics
-    // when the selected event actually came from SofaScore.
-    if(m.status!='NS' && m.eventIdProvider.toLowerCase()=='sofascore')await trySofaCurrent();
-    if(m.status!='NS')return {'stats':out,'source':source};
-
-    final historical=await _fetchHistoricalMatchStats(m);
-    final h=historical['stats'];
-    if(h is Map){
-      final hm=Map<String,dynamic>.from(h);
-      hm.forEach((key,value){ if(!out.containsKey(key)) out[key]=value; });
-    }
-    // Always surface sourced goal-form averages when the provider does not
-    // expose detailed shot/corner statistics. Never label these as live stats.
-    Map<String,dynamic>? parseGoalForm(String side){
-      final prefix=side=='home'?'Forma casa:':'Forma ospiti:';
-      for(final line in m.preMatchStats){
-        if(!line.toLowerCase().startsWith(prefix.toLowerCase()))continue;
-        final match=RegExp(r'Forma\s+(?:casa|ospiti):\s*(\d+)\s*V\s+(\d+)\s*N\s+(\d+)\s*P\s*[·•]\s*(\d+)\s*-\s*(\d+)\s*gol',caseSensitive:false).firstMatch(line);
-        if(match==null)continue;
-        final games=(int.tryParse(match.group(1)??'')??0)+(int.tryParse(match.group(2)??'')??0)+(int.tryParse(match.group(3)??'')??0);
-        if(games<=0)continue;
-        return {'gf':(int.tryParse(match.group(4)??'')??0)/games,'ga':(int.tryParse(match.group(5)??'')??0)/games,'games':games};
-      }
-      return null;
-    }
-    if(m.status=='NS'){
-      final hf=parseGoalForm('home'),af=parseGoalForm('away');
-      if(hf!=null&&af!=null){
-        out.putIfAbsent('homeGoals',()=>hf['gf']);
-        out.putIfAbsent('homeConceded',()=>hf['ga']);
-        out.putIfAbsent('awayGoals',()=>af['gf']);
-        out.putIfAbsent('awayConceded',()=>af['ga']);
-        if(source.isEmpty)source='Feed pre-match · medie gol da forma recente';
-        else if(!source.contains('Feed pre-match'))source+=' + Feed pre-match · medie gol da forma recente';
-      }
-    }
-    if(out.isNotEmpty){
-      final hs=historical['source']?.toString()??'';
-      if(hs.isNotEmpty && !source.contains(hs)) source=source.isEmpty?hs:'$source + $hs';
-      return {'stats':out,'source':source};
-    }
-    return {'stats':out,'source':source};
-  }
-
-  Future<Map<String,dynamic>> _fetchHistoricalMatchStats(Match m) async {
-    final out=<String,dynamic>{};
-    const wanted=<String,String>{
-      'totalshots':'shots','shots':'shots','shotsontarget':'on','shotsongoal':'on','cornerkicks':'corners','corners':'corners',
-      'fouls':'fouls','throwins':'throw','goalkeepersaves':'saves','saves':'saves','yellowcards':'yellow','redcards':'red','possession':'possession',
-    };
-    String normalizeTeamName(String value) {
-      final normalized=value.toLowerCase()
-          .replaceAll(RegExp(r'\b(fc|cf|sc|afc|ac|as|club|football|soccer)\b'),' ')
-          .replaceAll(RegExp(r'[^a-z0-9]'),'');
-      const aliases=<String,String>{
-        'manutd':'manchesterunited','manchesterutd':'manchesterunited',
-        'manunited':'manchesterunited','psg':'parissaintgermain',
-        'intermilan':'inter','internazionale':'inter',
-        'atleticodemadrid':'atleticomadrid','sportingcp':'sporting',
-        'bayernmuenchen':'bayernmunich','bayernmunchen':'bayernmunich',
-        'wolves':'wolverhamptonwanderers','spurs':'tottenhamhotspur',
-      };
-      return aliases[normalized]??normalized;
-    }
-    Future<int?> findTeam(String name) async {
-      try{
-        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/search/all?q='+Uri.encodeComponent(name)),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return null;
-        final data=jsonDecode(res.body);final results=data is Map?data['results']:null;
-        if(results is! List)return null;
-        final target=normalizeTeamName(name);
-        final candidates=<Map<String,dynamic>>[];
-        for(final item in results){
-          if(item is! Map)continue;
-          final entity=item['entity'];
-          if(entity is! Map||entity['id']==null)continue;
-          final type=(item['type']??'').toString().toLowerCase();
-          final entityType=(entity['type']??'').toString().toLowerCase();
-          final sport=entity['sport'];
-          final sportSlug=sport is Map?(sport['slug']??'').toString().toLowerCase():'';
-          final isTeam=type=='team'||entityType=='team'||(sportSlug=='football'&&entity['name']!=null);
-          if(!isTeam)continue;
-          final candidate=normalizeTeamName((entity['name']??'').toString());
-          if(candidate.isEmpty)continue;
-          if(candidate==target)return int.tryParse(entity['id'].toString());
-          if(target.length>=7&&candidate.length>=7&&
-             (candidate.contains(target)||target.contains(candidate))){
-            candidates.add(Map<String,dynamic>.from(entity));
-          }
-        }
-        if(candidates.length==1)return int.tryParse(candidates.single['id'].toString());
-      }catch(_){ }
-      return null;
-    }
-    Future<List<int>> recentEvents(int teamId) async {
-      try{
-        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/team/'+teamId.toString()+'/events/last/0'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:10));
-        if(res.statusCode!=200)return <int>[]; final data=jsonDecode(res.body); final events=data is Map?data['events']:null; if(events is! List)return <int>[];
-        final ids=<int>[]; for(final e in events){if(e is! Map)continue;final id=int.tryParse(e['id']?.toString()??'');final st=e['status'];final type=st is Map?st['type'].toString().toLowerCase():'';if(id!=null && (type=='finished'||type=='ended'||type=='afterextra'||type=='afterpenalties'))ids.add(id);}
-        return ids.take(5).toList();
-      }catch(_){return <int>[];}
-    }
-    Future<Map<String,double>> eventTeamStats(int eventId,int teamId) async {
-      final s=<String,double>{};
-      try{
-        final info=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
-        if(info.statusCode!=200)return s; final infoData=jsonDecode(info.body);final ev=infoData is Map?infoData['event']:null; if(ev is! Map)return s;
-        final home=ev['homeTeam'];final away=ev['awayTeam'];
-        final homeId=home is Map?int.tryParse(home['id']?.toString()??''):null;
-        final awayId=away is Map?int.tryParse(away['id']?.toString()??''):null;
-        // A result must contain the exact requested team ID; never treat an
-        // unrelated event as an away fixture just because its home ID differs.
-        if(homeId!=teamId && awayId!=teamId)return s;
-        final isHome=homeId==teamId;
-        final res=await http.get(Uri.parse('https://www.sofascore.com/api/v1/event/'+eventId.toString()+'/statistics'),headers:const {'Accept':'application/json'}).timeout(const Duration(seconds:8));
-        if(res.statusCode!=200)return s; final data=jsonDecode(res.body);final periods=data is Map?data['statistics']:null;if(periods is! List)return s;
-        Map? all;for(final p in periods){if(p is Map&&p['period']=='ALL'){all=p;break;}}if(all==null)return s;
-        final groups=all['groups'];if(groups is! List)return s;final items=<Map>[];for(final g in groups){if(g is Map&&g['statisticsItems'] is List)items.addAll((g['statisticsItems'] as List).whereType<Map>());}
-        for(final item in items){
-          final key=(item['key']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final name=(item['name']??'').toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final normalized=wanted[key]??wanted[name];if(normalized==null)continue;
-          final raw=isHome?(item['homeValue']??item['home']):(item['awayValue']??item['away']);
-          final value=double.tryParse(raw==null?'':raw.toString().replaceAll('%','').replaceAll(',','.'));
-          if(value==null||!value.isFinite||value<0)continue;
-          // Reject impossible values instead of polluting the historical model.
-          final maximum=switch(normalized){
-            'shots'=>45.0,'on'=>25.0,'corners'=>25.0,'fouls'=>60.0,
-            'throw'=>70.0,'saves'=>25.0,'yellow'=>15.0,'red'=>5.0,
-            'possession'=>100.0,_=>1000.0,
-          };
-          if(value>maximum)continue;
-          if(normalized=='on'&&s['shots']!=null&&value>s['shots']!)continue;
-          s[normalized]=value;
-        }
-      }catch(_){ }
-      return s;
-    }
-    final homeId=await findTeam(m.home);final awayId=await findTeam(m.away);if(homeId==null||awayId==null)return {'stats':out,'source':''};
-    final homeEvents=await recentEvents(homeId);final awayEvents=await recentEvents(awayId);
-    final tasks=<Future<Map<String,double>>>[];for(final id in homeEvents)tasks.add(eventTeamStats(id,homeId));for(final id in awayEvents)tasks.add(eventTeamStats(id,awayId));
-    final rows=await Future.wait(tasks);final hrows=rows.take(homeEvents.length).where((x)=>x.isNotEmpty).toList();final arows=rows.skip(homeEvents.length).where((x)=>x.isNotEmpty).toList();
-    void average(List<Map<String,double>> rows,String prefix){
-      for(final key in wanted.values.toSet()){
-        final values=rows.map((x)=>x[key]).whereType<double>().toList();
-        // Show historical averages only when at least three completed
-        // matches actually contain that statistic.
-        if(values.length<3)continue;
-        out[prefix+key[0].toUpperCase()+key.substring(1)]=double.parse(
-          (values.reduce((a,b)=>a+b)/values.length).toStringAsFixed(1));
-      }
-    }
-    average(hrows,'home');average(arows,'away');
-    final samples=hrows.length<arows.length?hrows.length:arows.length;
-    if(out.isEmpty)return {'stats':out,'source':''};
-    return {'stats':out,'source':'SofaScore · gare concluse verificate; minimo 3 campioni per statistica, fino a '+samples.toString()+' gare per squadra'};
-  }
-  @override Widget build(BuildContext context){
-    final m=widget.m;
-    return DraggableScrollableSheet(expand:false,initialChildSize:.88,minChildSize:.60,maxChildSize:.96,builder:(_,controller)=>ListView(controller:controller,padding:const EdgeInsets.fromLTRB(18,12,18,28),children:[
-      Center(child:Container(width:40,height:4,decoration:BoxDecoration(color:Colors.white24,borderRadius:BorderRadius.circular(8)))),
-      const SizedBox(height:18),
-      Text(m.league.toUpperCase(),textAlign:TextAlign.center,style:const TextStyle(fontSize:9,color:Color(0xFF8B93A5),letterSpacing:1.2)),
-      const SizedBox(height:8),
-      Text(m.home+'  vs  '+m.away,textAlign:TextAlign.center,style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
-      const SizedBox(height:5),
-      Text(m.status=='NS' ? m.time.replaceAll('|',' ')+' · PRE-MATCH' : (m.live?'LIVE · dati in aggiornamento':'PARTITA TERMINATA'),textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF9A95B4),fontSize:10,fontWeight:FontWeight.w800)),
-      const SizedBox(height:16),
-      Row(children:[Expanded(child:_scoreBox(m.home,m.hs)),const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF60687A),fontWeight:FontWeight.w900))),Expanded(child:_scoreBox(m.away,m.ascore))]),
-      const SizedBox(height:18),
-      const Padding(padding:EdgeInsets.only(bottom:5),child:Text('Tiri · tiri in porta · angoli · falli · rimesse · parate · cartellini · possesso',style:TextStyle(color:Color(0xFF6F7687),fontSize:9))),
-      Row(children:[Expanded(child:Text(m.status=='NS'?'STATISTICHE PRE-MATCH':'STATISTICHE LIVE + DETTAGLIATE',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:11,fontWeight:FontWeight.w900,letterSpacing:1))),IconButton(onPressed:loadingStats?null:_loadStats,icon:Icon(Icons.refresh_rounded,color:loadingStats?const Color(0xFF555C70):const Color(0xFFA9A0FF)))]),
-      if(loadingStats)const Padding(padding:EdgeInsets.symmetric(vertical:24),child:Center(child:CircularProgressIndicator())),
-      if(!loadingStats && detailStats.isNotEmpty)...[
-        if(m.status=='NS')Padding(
-          padding:const EdgeInsets.only(bottom:7),
-          child:Row(children:[
-            const Expanded(child:Text('MEDIE STORICHE PRE-MATCH · ULTIME GARE DISPONIBILI',style:TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1))),
-            Text(statsStatus,style:const TextStyle(color:Color(0xFF6F7687),fontSize:8,fontWeight:FontWeight.w800)),
-          ]),
-        ),
-        ..._statGrid(detailStats,preMatch:m.status=='NS'),
-        const Padding(
-          padding:EdgeInsets.only(top:7,bottom:2),
-          child:Text('Queste schede mostrano medie delle gare precedenti, non dati della partita in programma. Il possesso usa la scala 0–100%; le medie delle due squadre, calcolate su gare diverse, possono non sommare a 100%.',style:TextStyle(color:Color(0xFF6F7687),fontSize:8,height:1.3)),
-        ),
-      ],
-      if(!loadingStats && detailStats.isEmpty)_emptyStats(m.status=='NS'?'Nessun dato storico dettagliato disponibile dalla fonte corrente.':'La fonte corrente non ha restituito statistiche dettagliate.'),
-      if(!loadingStats && detailStats.isNotEmpty && m.status=='NS')const Padding(padding:EdgeInsets.only(top:4,bottom:6),child:Text('Medie delle ultime gare · non sono i dati della partita in programma.',style:TextStyle(color:Color(0xFF7F879A),fontSize:9))),
-      if(statsSource.isNotEmpty)Padding(padding:const EdgeInsets.only(top:6),child:Text('Fonte: '+statsSource,style:const TextStyle(color:Color(0xFF6F7687),fontSize:9))),
-      if(m.status=='NS' && !loadingStats && aiContext.isNotEmpty)_aiMatchPanel(),
-      if(m.status=='NS' && !loadingStats)_h2hPanel(),
-      if(m.preMatchStats.isNotEmpty)...[
-        const SizedBox(height:18),
-        Text(m.status=='NS'?'DATI PRE-MATCH':'DATI PARTITA',style:const TextStyle(color:Color(0xFF7F879A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
-        const SizedBox(height:8),
-        ...m.preMatchStats.map((s)=>Padding(padding:const EdgeInsets.only(bottom:6),child:Text(s,style:const TextStyle(color:Color(0xFFB4BAC8),fontSize:11,height:1.3)))),
-      ],
-      if(m.proposals.isNotEmpty)...[
-        Builder(builder:(context){
-          final marketOnly=m.proposals.every((p)=>p.contains('(market signal)'));
-          return Column(children:[
-            if(!marketOnly) ...[
-              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x18FF4F79),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x44FF4F79))),child:Row(children:[const Icon(Icons.local_fire_department_rounded,color:Color(0xFFFF6A8D),size:18),const SizedBox(width:8),Text(m.confidence>0?'PUNTEGGIO SEGNALE FEED · '+m.confidence.toString()+'/100':'PUNTEGGIO FEED NON DISPONIBILE',style:const TextStyle(color:Color(0xFFFF6A8D),fontSize:10,fontWeight:FontWeight.w900))])),
-            ] else ...[
-              Container(margin:const EdgeInsets.only(top:12,bottom:4),padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:const Color(0x181F8BFF),borderRadius:BorderRadius.circular(14),border:Border.all(color:const Color(0x4439D9FF))),child:Row(children:[const Icon(Icons.show_chart_rounded,color:Color(0xFF39D9FF),size:18),const SizedBox(width:8),const Text('SEGNALE DI MERCATO',style:TextStyle(color:Color(0xFF39D9FF),fontSize:11,fontWeight:FontWeight.w900))])),
-            ],
-            const SizedBox(height:16),
-            Text(marketOnly?'SEGNALE MERCATO':'PROPOSTA IA',style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFF42E89A),fontSize:9,fontWeight:FontWeight.w900,letterSpacing:1)),
-            const SizedBox(height:8),
-            Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:marketOnly?const Color(0x121AA8D8):const Color(0x1242E89A),borderRadius:BorderRadius.circular(14),border:Border.all(color:marketOnly?const Color(0x3039D9FF):const Color(0x3042E89A))),child:Column(children:[
-              Text(m.pick,style:TextStyle(color:marketOnly?const Color(0xFF7FDBFF):const Color(0xFF42E89A),fontWeight:FontWeight.w900)),
-              const SizedBox(height:7),
-              Text(marketOnly?'Punteggio segnale mercato: '+m.confidence.toString()+'/100':(m.confidence>0?'Punteggio proposta fonte: '+m.confidence.toString()+'/100':'Punteggio fonte non disponibile — usa le probabilità 1X2 del motore IA'),style:TextStyle(color:marketOnly?const Color(0xFF39D9FF):const Color(0xFFA9A0FF),fontSize:10,fontWeight:FontWeight.w900)),
-            ])),
-            if(m.proposals.length>1) ...[
-              const SizedBox(height:10),
-              Align(alignment:Alignment.centerLeft,child:Text('ALTRE PROPOSTE',style:TextStyle(color:Color(0xFF6F778A),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:1))),
-              const SizedBox(height:6),
-              ...m.proposals.skip(1).map((p)=>Container(
-                width:double.infinity,
-                margin:const EdgeInsets.only(bottom:6),
-                padding:const EdgeInsets.symmetric(horizontal:11,vertical:9),
-                decoration:BoxDecoration(color:const Color(0x0CFFFFFF),borderRadius:BorderRadius.circular(11),border:Border.all(color:Colors.white10)),
-                child:Text(p,style:const TextStyle(color:Color(0xFFB9BFCC),fontSize:10,fontWeight:FontWeight.w800)),
-              )),
-            ],
-          ]);
-        }),
-      ],
-      const SizedBox(height:12),
-      Text('Nota: il punteggio è un indicatore statistico e non rappresenta una garanzia di risultato.',style:const TextStyle(color:Color(0xFF737B8E),fontSize:10,height:1.4)),
-    ]));
-  }
-
-
-  Widget _aiMatchPanel(){
-    if(aiContext.isEmpty)return const SizedBox.shrink();
-    final hp=aiContext['homeProb'].toString(),dp=aiContext['drawProb'].toString(),ap=aiContext['awayProb'].toString();
-    final pick=aiContext['pick'].toString(),conf=aiContext['confidence'].toString();
-    final hf=((aiContext['homeForm'] as num?)?.toDouble()??0); final af=((aiContext['awayForm'] as num?)?.toDouble()??0);
-    final hr=aiContext['homeRecent'] is Map?Map<String,dynamic>.from(aiContext['homeRecent'] as Map):<String,dynamic>{};
-    final ar=aiContext['awayRecent'] is Map?Map<String,dynamic>.from(aiContext['awayRecent'] as Map):<String,dynamic>{};
-    Widget p(String l,String v,Color c)=>Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:9),decoration:BoxDecoration(color:c.withValues(alpha:.08),borderRadius:BorderRadius.circular(12),border:Border.all(color:c.withValues(alpha:.18))),child:Column(children:[Text(v+'%',style:TextStyle(color:c,fontSize:16,fontWeight:FontWeight.w900)),Text(l,style:const TextStyle(color:Color(0xFF6F778A),fontSize:7,fontWeight:FontWeight.w900))])));
-    return Container(margin:const EdgeInsets.only(top:14),padding:const EdgeInsets.all(15),decoration:BoxDecoration(borderRadius:BorderRadius.circular(22),gradient:const LinearGradient(colors:[Color(0xFF18152C),Color(0xFF0F1622)]),border:Border.all(color:const Color(0x3342E89A))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Row(children:[const Icon(Icons.auto_awesome_rounded,color:Color(0xFF42E89A),size:19),const SizedBox(width:7),const Expanded(child:Text('PROBABILITÀ MODELLO 1X2',style:TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.6))),Text('MAX '+conf+'%',style:const TextStyle(color:Color(0xFF42E89A),fontSize:10,fontWeight:FontWeight.w900))]),
-      const SizedBox(height:8),Text(pick,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),const SizedBox(height:10),
-      Row(children:[p('CASA',hp,const Color(0xFF39D9FF)),const SizedBox(width:6),p('X',dp,const Color(0xFFFFC857)),const SizedBox(width:6),p('OSPITE',ap,const Color(0xFFA9A0FF))]),
-      if((widget.m.aiHomeProb+widget.m.aiDrawProb+widget.m.aiAwayProb)>0)Padding(
-        padding:const EdgeInsets.only(top:7),
-        child:Text('Probabilità feed: 1 ${widget.m.aiHomeProb}% · X ${widget.m.aiDrawProb}% · 2 ${widget.m.aiAwayProb}%',style:const TextStyle(color:Color(0xFF626B7D),fontSize:8,fontWeight:FontWeight.w800)),
-      ),
-      const SizedBox(height:10),
-      Row(children:[
-        Expanded(child:Text('CASA · forma '+(hf*100).round().toString()+'/100 · '+(hr['w']??0).toString()+'V '+(hr['d']??0).toString()+'N '+(hr['l']??0).toString()+'P',style:const TextStyle(color:Color(0xFF39D9FF),fontSize:8,fontWeight:FontWeight.w900))),
-        Expanded(child:Text('OSPITE · forma '+(af*100).round().toString()+'/100 · '+(ar['w']??0).toString()+'V '+(ar['d']??0).toString()+'N '+(ar['l']??0).toString()+'P',textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900)))
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(child: RefreshIndicator(
+      color: lime, backgroundColor: panel, onRefresh: load,
+      child: CustomScrollView(slivers: [
+        SliverToBoxAdapter(child: _header()),
+        if (tab == 0) ...[
+          SliverToBoxAdapter(child: _hero()),
+          SliverToBoxAdapter(child: _sectionTitle('SELEZIONE DEL MOTORE', 'Partite con segnali più leggibili')),
+          if (loading) const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator(color: lime)))),
+          if (!loading && strongest.isEmpty) SliverToBoxAdapter(child: _empty('Nessuna partita con dati sufficienti', 'Aggiorna il feed o scegli una giornata con più dati verificati.')),
+          SliverList(delegate: SliverChildBuilderDelegate((context, i) => _matchCard(strongest[i], featured: true), childCount: loading ? 0 : strongest.length)),
+          SliverToBoxAdapter(child: _sectionTitle('IL RESTO DELLE PARTITE', 'Confronta probabilità e qualità dei dati')),
+          SliverToBoxAdapter(child: _leagueFilter()),
+          SliverList(delegate: SliverChildBuilderDelegate((context, i) => _matchCard(filtered[i]), childCount: filtered.length)),
+        ] else if (tab == 1) ...[
+          SliverToBoxAdapter(child: _sectionTitle('TUTTE LE PARTITE', matches.length.toString() + ' incontri nel feed')),
+          SliverToBoxAdapter(child: _leagueFilter()),
+          SliverList(delegate: SliverChildBuilderDelegate((context, i) => _matchCard(filtered[i]), childCount: filtered.length)),
+        ] else ...[
+          SliverToBoxAdapter(child: _methodPanel()),
+        ],
+        SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(20,18,20,34), child: Text('Le probabilità sono stime statistiche, non garanzie. Il motore riduce il livello di fiducia quando i dati sono incompleti.', style: TextStyle(color: muted, fontSize: 11, height: 1.45)))),
       ]),
-      const SizedBox(height:6),
-      Text('Campione analizzato: '+(hr['games']??0).toString()+' gare casa · '+(ar['games']??0).toString()+' gare ospite · '+h2hResults.length.toString()+' H2H',style:const TextStyle(color:Color(0xFF626B7D),fontSize:8,fontWeight:FontWeight.w800)),
-      const SizedBox(height:9),
-      Container(padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:const Color(0x0BFFFFFF),borderRadius:BorderRadius.circular(12)),child:Text('Scontri diretti: '+aiContext['h2hHome'].toString()+' vittorie '+widget.m.home+' · '+aiContext['h2hDraw'].toString()+' pareggi · '+aiContext['h2hAway'].toString()+' vittorie '+widget.m.away,style:const TextStyle(color:Color(0xFF8C95A7),fontSize:8.5,fontWeight:FontWeight.w800))),
-      const SizedBox(height:9),const Text('PROIEZIONE STATISTICA',style:TextStyle(color:Color(0xFF70798B),fontSize:8,fontWeight:FontWeight.w900,letterSpacing:.8)),
-      const SizedBox(height:6),Wrap(spacing:6,runSpacing:6,children:[
-        _projection('Tiri',aiContext['homeShots'],aiContext['awayShots']),_projection('Porta',aiContext['homeOn'],aiContext['awayOn']),_projection('Angoli',aiContext['homeCorners'],aiContext['awayCorners']),_projection('Falli',aiContext['homeFouls'],aiContext['awayFouls']),_projection('Gol medi',aiContext['homeGoals'],aiContext['awayGoals'])
-      ]),
-      const SizedBox(height:7),Text((aiContext['model']??'Modello basato sui dati verificati').toString()+'. Le proiezioni statistiche vengono mostrate solo quando disponibili; non si sostituiscono i valori mancanti con stime arbitrarie.',style:const TextStyle(color:Color(0xFF626B7D),fontSize:8,height:1.35))
-    ]));
-  }
+    )),
+    bottomNavigationBar: NavigationBar(
+      backgroundColor: const Color(0xFF0D1523), indicatorColor: lime.withOpacity(.14),
+      selectedIndex: tab, onDestinationSelected: (v) => setState(() => tab = v),
+      destinations: const [
+        NavigationDestination(icon: Icon(Icons.auto_awesome), label: 'Pronostici'),
+        NavigationDestination(icon: Icon(Icons.sports_soccer), label: 'Partite'),
+        NavigationDestination(icon: Icon(Icons.psychology_alt_outlined), label: 'Motore AI'),
+      ],
+    ),
+  );
 
-  Widget _projection(String label,dynamic h,dynamic a){
-    final home=_number(h),away=_number(a);
-    return Container(
-      padding:const EdgeInsets.symmetric(horizontal:9,vertical:7),
-      decoration:BoxDecoration(color:const Color(0x0DFFFFFF),borderRadius:BorderRadius.circular(10),
-        border:Border.all(color:Colors.white10)),
-      child:Text(label+'  '+(home==null?'—':_statNumber(home))+' • '+(away==null?'—':_statNumber(away)),
-        style:const TextStyle(color:Color(0xFFE5E8EE),fontSize:8.5,fontWeight:FontWeight.w900)));
-  }
-
-  Widget _h2hPanel()=>Container(margin:const EdgeInsets.only(top:10),padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:const Color(0xD90F1422),borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0x24FFC857))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Row(children:[const Icon(Icons.history_rounded,color:Color(0xFFFFC857),size:17),const SizedBox(width:7),const Expanded(child:Text('SCONTRI DIRETTI',style:TextStyle(color:Color(0xFFFFC857),fontSize:10,fontWeight:FontWeight.w900,letterSpacing:.9))),Text(h2hResults.length.toString()+' precedenti',style:const TextStyle(color:Color(0xFF687184),fontSize:8,fontWeight:FontWeight.w800))]),
-    const SizedBox(height:8),
-    if(h2hResults.isEmpty)const Text('Nessun precedente diretto disponibile dalla fonte corrente.',style:TextStyle(color:Color(0xFF858D9F),fontSize:9))
-    else ...h2hResults.take(5).map((e)=>Padding(padding:const EdgeInsets.only(bottom:5),child:Row(children:[Expanded(child:Text(e['home'].toString()+'  '+e['hs'].toString()+' - '+e['as'].toString()+'  '+e['away'].toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:8.5,fontWeight:FontWeight.w800))),const SizedBox(width:6),Text(e['date']?.toString()??'',style:const TextStyle(color:Color(0xFF697183),fontSize:7,fontWeight:FontWeight.w800))])))
+  Widget _header() => Padding(padding: const EdgeInsets.fromLTRB(20,16,20,10), child: Row(children: [
+    Container(width: 44, height: 44, decoration: BoxDecoration(gradient: const LinearGradient(colors: [lime, cyan]), borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.bolt, color: bg, size: 28)),
+    const SizedBox(width: 12),
+    const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('MATCH AI PRO', style: TextStyle(letterSpacing: 2.2, fontWeight: FontWeight.w900, fontSize: 15)),
+      Text('SUPER PREDICTION ENGINE', style: TextStyle(color: cyan, letterSpacing: 1.2, fontSize: 9, fontWeight: FontWeight.w800)),
+    ])),
+    IconButton(onPressed: load, icon: const Icon(Icons.refresh_rounded), tooltip: 'Aggiorna'),
   ]));
 
-  Widget _scoreBox(String team,int? score)=>Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Column(children:[Text(score==null?'—':'$score',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900)),Text(team,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,color:Color(0xFF9299AD)))]));
-
-
-  List<Widget> _statGrid(Map<String,dynamic> s,{required bool preMatch}){
-    final defs=<String,List<String>>{
-      'GOL FATTI MEDI':['homeGoals','awayGoals'],
-      'GOL SUBITI MEDI':['homeConceded','awayConceded'],
-      'TIRI':['homeShots','awayShots'],
-      'TIRI IN PORTA':['homeOn','awayOn'],
-      'ANGOLI':['homeCorners','awayCorners'],
-      'FALLI':['homeFouls','awayFouls'],
-      'RIMESSE LATERALI':['homeThrow','awayThrow'],
-      'PARATE':['homeSaves','awaySaves'],
-      'CARTELLINI GIALLI':['homeYellow','awayYellow'],
-      'CARTELLINI ROSSI':['homeRed','awayRed'],
-      'FUORIGIOCO':['homeOffsides','awayOffsides'],
-      'TIRI BLOCCATI':['homeBlocked','awayBlocked'],
-      'CONTRASTI':['homeTackles','awayTackles'],
-      'SPAZZATE':['homeClearances','awayClearances'],
-      'POSSESSO':['homePossession','awayPossession']
-    };
-    const categoryByStat=<String,String>{
-      'GOL FATTI MEDI':'ATTACCO','GOL SUBITI MEDI':'DIFESA',
-      'TIRI':'ATTACCO','TIRI IN PORTA':'ATTACCO','TIRI BLOCCATI':'ATTACCO',
-      'ANGOLI':'CREAZIONE','POSSESSO':'CREAZIONE',
-      'PARATE':'DIFESA','CONTRASTI':'DIFESA','SPAZZATE':'DIFESA','FUORIGIOCO':'DIFESA',
-      'FALLI':'DISCIPLINA','RIMESSE LATERALI':'DISCIPLINA',
-      'CARTELLINI GIALLI':'DISCIPLINA','CARTELLINI ROSSI':'DISCIPLINA'
-    };
-    final categories=<String>['TUTTO','ATTACCO','CREAZIONE','DIFESA','DISCIPLINA'];
-    final visibleDefs=defs.entries.where((e)=>statCategory=='TUTTO'||categoryByStat[e.key]==statCategory).toList();
-    return [Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[
-        for(final category in categories)
-          Padding(padding:const EdgeInsets.only(right:6,bottom:9),child:ChoiceChip(
-            label:Text(category,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w900)),
-            selected:statCategory==category,
-            showCheckmark:false,
-            selectedColor:const Color(0xFF282343),
-            backgroundColor:const Color(0xFF101522),
-            side:BorderSide(color:statCategory==category?const Color(0xFFA9A0FF):Colors.white10),
-            labelStyle:TextStyle(color:statCategory==category?const Color(0xFFC6BDFF):const Color(0xFF80889A)),
-            onSelected:(_)=>setState(()=>statCategory=category),
-          )),
-      ])),
-      GridView.count(
-        crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
-        crossAxisSpacing:8,mainAxisSpacing:8,childAspectRatio:1.12,
-        children:visibleDefs.map((e){
-          final rawH=_number(s[e.value[0]]),rawA=_number(s[e.value[1]]);
-          final missingCount=(rawH==null?1:0)+(rawA==null?1:0);
-          final double? hv=rawH, av=rawA;
-          final total=(hv??0.0)+(av??0.0);
-          final isPossession=e.key=='POSSESSO';
-          final double hp=isPossession
-              ? ((hv??0.0)/100.0)
-              : (total<=0 ? 0.5 : (hv??0.0)/total);
-          final double ap=isPossession
-              ? ((av??0.0)/100.0)
-              : (total<=0 ? 0.5 : (av??0.0)/total);
-          final accent=isPossession?const Color(0xFFA9A0FF):(e.key.contains('CARTELLINI')?const Color(0xFFFFC857):const Color(0xFF39D9FF));
-          final suffix=isPossession?'%':'';
-          return Material(color:Colors.transparent,child:InkWell(
-            borderRadius:BorderRadius.circular(18),
-            onTap:()=>_showStatInsight(e.key,hv,av,preMatch,isPossession),
-            child:Container(padding:const EdgeInsets.fromLTRB(10,10,10,9),
-              decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),
-              child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-                Row(children:[
-                  Expanded(child:Text(e.key,style:const TextStyle(color:Color(0xFF8992A6),fontSize:7.5,fontWeight:FontWeight.w900))),
-                  if(missingCount==0)Text(preMatch?'MEDIA':'REALE',style:TextStyle(color:preMatch?const Color(0xFF39D9FF):const Color(0xFF42E89A),fontSize:6.5,fontWeight:FontWeight.w900)),
-                  if(missingCount==1)const Text('PARZIALE',style:TextStyle(color:Color(0xFFFFC857),fontSize:6.5,fontWeight:FontWeight.w900)),
-                  if(missingCount==2)const Text('DATI N/D',style:TextStyle(color:Color(0xFFFFC857),fontSize:6.5,fontWeight:FontWeight.w900)),
-                  const SizedBox(width:3),Icon(Icons.open_in_full_rounded,size:9,color:accent),
-                ]),
-                const Spacer(),
-                Row(children:[
-                  Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-                    Text(hv==null?'—':_statNumber(hv)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:hv==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),
-                    const Text('CASA',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900)),
-                  ])),
-                  Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[
-                    Text(av==null?'—':_statNumber(av)+suffix,style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:av==null?const Color(0xFF687184):const Color(0xFFE5E7EE))),
-                    const Text('OSPITE',style:TextStyle(color:Color(0xFF5F6778),fontSize:6.5,fontWeight:FontWeight.w900)),
-                  ])),
-                ]),
-                const SizedBox(height:8),
-                Row(children:[
-                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:accent.withValues(alpha:.18),borderRadius:BorderRadius.circular(8)),child:hv==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:(isPossession?hp.clamp(0.0,1.0):hp.clamp(.05,.95)).toDouble(),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:accent,borderRadius:BorderRadius.circular(8)))))),
-                  const SizedBox(width:4),
-                  Expanded(child:Container(height:4,decoration:BoxDecoration(color:const Color(0xFF7D8496).withValues(alpha:.14),borderRadius:BorderRadius.circular(8)),child:av==null?const SizedBox.shrink():FractionallySizedBox(widthFactor:(isPossession?ap.clamp(0.0,1.0):ap.clamp(.05,.95)).toDouble(),alignment:Alignment.centerLeft,child:Container(decoration:BoxDecoration(color:const Color(0xFF7D8496),borderRadius:BorderRadius.circular(8)))))),
-                ]),
-                const SizedBox(height:3),
-                const Text('TOCCA PER DETTAGLI',textAlign:TextAlign.right,style:TextStyle(color:Color(0xFF4F586B),fontSize:5.5,fontWeight:FontWeight.w900)),
-              ]),
-            ),
-          ));
-        }).toList()
+  Widget _hero() {
+    final degraded = feedStatus.toUpperCase() != 'LIVE';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16,8,16,18), padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF1C2B40), Color(0xFF101B2C), Color(0xFF132C32)]),
+        border: Border.all(color: cyan.withOpacity(.28)),
       ),
-      Padding(padding:const EdgeInsets.only(top:7,bottom:3),child:Text(
-        'Mostrate: '+visibleDefs.length.toString()+' categorie · '+(preMatch?'MEDIA STORICA':'DATO PARTITA'),
-        style:const TextStyle(color:Color(0xFF5F687A),fontSize:8))),
-    ])];
-  }
-
-  void _showStatInsight(String name,double? home,double? away,bool preMatch,bool possession){
-    const definitions=<String,String>{
-      'TIRI':'Numero di conclusioni tentate. È un indicatore di volume offensivo, non misura da solo la qualità delle occasioni.',
-      'TIRI IN PORTA':'Conclusioni indirizzate nello specchio. È uno degli indicatori più utili per valutare la produzione offensiva.',
-      'ANGOLI':'Calci d’angolo ottenuti. Il dato può non essere pubblicato da alcune fonti o competizioni.',
-      'FALLI':'Falli commessi. Valori elevati possono indicare pressione o difficoltà nel contenere l’avversario.',
-      'RIMESSE LATERALI':'Rimesse laterali. Non tutte le fonti forniscono questo indicatore in modo coerente.',
-      'PARATE':'Interventi del portiere registrati dalla fonte.',
-      'CARTELLINI GIALLI':'Ammonizioni registrate; una media frazionaria indica la media di più incontri.',
-      'CARTELLINI ROSSI':'Espulsioni registrate; una media frazionaria indica la media di più incontri.',
-      'FUORIGIOCO':'Posizioni di fuorigioco fischiate.',
-      'TIRI BLOCCATI':'Conclusioni bloccate dai difensori.',
-      'CONTRASTI':'Contrasti registrati dalla fonte statistica; definizioni e copertura variano tra provider.',
-      'SPAZZATE':'Interventi difensivi di allontanamento del pallone.',
-      'POSSESSO':'Percentuale di possesso. Nelle statistiche pre-partita le due percentuali sono medie di partite diverse e non devono necessariamente sommare al 100%.',
-    };
-    final diff=home!=null&&away!=null?home-away:null;
-    final formattedDiff=diff==null?'Differenza non calcolabile':(possession?'Differenza media: '+(diff>0?'+':'')+diff.toStringAsFixed(1)+' punti percentuali':'Differenza media: '+(diff>0?'+':'')+_statNumber(diff.abs()));
-    showModalBottomSheet<void>(
-      context:context,isScrollControlled:true,backgroundColor:const Color(0xFF090D17),
-      shape:const RoundedRectangleBorder(borderRadius:BorderRadius.vertical(top:Radius.circular(24))),
-      builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,12,20,24),child:Column(
-        mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
-          Center(child:Container(width:42,height:4,decoration:BoxDecoration(color:Colors.white24,borderRadius:BorderRadius.circular(4)))),
-          const SizedBox(height:17),
-          Row(children:[
-            const Icon(Icons.insights_rounded,color:Color(0xFF9D91FF),size:24),
-            const SizedBox(width:9),
-            Expanded(child:Text(name,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))),
-            Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:preMatch?const Color(0x1839D9FF):const Color(0x1842E89A),borderRadius:BorderRadius.circular(9)),child:Text(preMatch?'MEDIA STORICA':'DATO PARTITA',style:TextStyle(color:preMatch?const Color(0xFF39D9FF):const Color(0xFF42E89A),fontSize:8,fontWeight:FontWeight.w900))),
-          ]),
-          const SizedBox(height:14),
-          Row(children:[
-            Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:12,horizontal:8),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(14)),child:Column(children:[
-              Text(home==null?'—':_statNumber(home)+(possession?'%':''),style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),
-              const Text('CASA',style:TextStyle(fontSize:8,color:Color(0xFF9299AD))),
-            ]))),
-            const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Text('VS',style:TextStyle(color:Color(0xFF687184),fontWeight:FontWeight.w900))),
-            Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:12,horizontal:8),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(14)),child:Column(children:[
-              Text(away==null?'—':_statNumber(away)+(possession?'%':''),style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),
-              const Text('OSPITE',style:TextStyle(fontSize:8,color:Color(0xFF9299AD))),
-            ]))),
-          ]),
-          const SizedBox(height:8),
-          Text(home==null||away==null?'Uno o entrambi i valori non sono disponibili nella fonte.':formattedDiff,
-            style:const TextStyle(color:Color(0xFFB6BDD0),fontSize:11,fontWeight:FontWeight.w800)),
-          const SizedBox(height:10),
-          Text(definitions[name]??'Indicatore statistico fornito dalla fonte corrente.',
-            style:const TextStyle(color:Color(0xFF8D95A8),fontSize:11,height:1.45)),
-          const SizedBox(height:12),
-          Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:const Color(0xFF111725),borderRadius:BorderRadius.circular(13)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text(preMatch?'CAMPIONE STORICO':'STATO DATI',style:const TextStyle(color:Color(0xFFA9A0FF),fontSize:8,fontWeight:FontWeight.w900)),
-            const SizedBox(height:5),
-            Text(preMatch?'Questi valori sono medie pre-partita delle gare disponibili, non statistiche della partita futura.':'Questi valori si riferiscono alla partita soltanto se la fonte li ha già pubblicati.',
-              style:const TextStyle(color:Color(0xFF828B9F),fontSize:10,height:1.35)),
-            const SizedBox(height:5),
-            Text('Fonte: '+(statsSource.isEmpty?'non indicata dal provider':statsSource),
-              style:const TextStyle(color:Color(0xFF626B7D),fontSize:8)),
-          ])),
-          const SizedBox(height:8),
-          Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:()=>Navigator.of(context).pop(),icon:const Icon(Icons.check_rounded,size:16),label:const Text('CHIUDI'))),
-        ],
-      ))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Expanded(child: Text('L’ANALISI PARTE DAI DATI', style: TextStyle(color: cyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.3))),
+          _pill(loading ? 'AGGIORNO' : (degraded ? 'FEED RIDOTTO' : 'FEED LIVE'), degraded ? const Color(0xFFFFC66D) : lime),
+        ]),
+        const SizedBox(height: 15),
+        const Text('Meno rumore.\nPiù probabilità.', style: TextStyle(fontSize: 30, height: 1.05, fontWeight: FontWeight.w900, letterSpacing: -.8)),
+        const SizedBox(height: 12),
+        Text('Il motore confronta forma recente, gol, tiri in porta e segnali di mercato. Se il campione è debole, abbassa la fiducia invece di inventare certezze.', style: TextStyle(color: Colors.white.withOpacity(.72), fontSize: 13, height: 1.5)),
+        const SizedBox(height: 18),
+        Row(children: [
+          _metric(matches.length.toString(), 'PARTITE'),
+          const SizedBox(width: 22), _metric(history.length.toString(), 'RISULTATI'),
+          const SizedBox(width: 22), _metric('SPE-1', 'MOTORE'),
+        ]),
+        if (error.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error, style: const TextStyle(color: Color(0xFFFF8888)))),
+      ]),
     );
   }
-  double? _number(dynamic value){
-    if(value==null)return null;
-    if(value is num)return value.toDouble();
-    final d=double.tryParse(value.toString().replaceAll('%','').replaceAll(',','.')); if(d!=null)return d;
-    final m=RegExp(r'-?\d+(?:\.\d+)?').firstMatch(value.toString()); return m==null?null:double.tryParse(m.group(0)!);
+
+  Widget _metric(String value, String label) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: lime)),
+    const SizedBox(height: 3), Text(label, style: TextStyle(color: muted, fontSize: 9, letterSpacing: 1.2, fontWeight: FontWeight.w800)),
+  ]);
+
+  Widget _sectionTitle(String title, String subtitle) => Padding(padding: const EdgeInsets.fromLTRB(20,12,20,12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(title, style: const TextStyle(fontSize: 11, letterSpacing: 1.4, color: cyan, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 5), Text(subtitle, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+  ]));
+
+  Widget _leagueFilter() => SizedBox(height: 48, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: leagues.map((l) =>
+    Padding(padding: const EdgeInsets.only(right: 8), child: ChoiceChip(label: Text(l), selected: filter == l, onSelected: (_) => setState(() => filter = l),
+      selectedColor: lime.withOpacity(.18), backgroundColor: panel, side: BorderSide(color: filter == l ? lime.withOpacity(.6) : line),
+      labelStyle: TextStyle(color: filter == l ? lime : Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)))).toList()));
+
+  Widget _matchCard(Map<String,dynamic> m, {bool featured = false}) {
+    final p = _prediction(m);
+    final home = _s(m['home']), away = _s(m['away']);
+    final h = _num(p['home']) ?? 0, d = _num(p['draw']) ?? 0, a = _num(p['away']) ?? 0;
+    final pick = _s(p['pick']), quality = _num(p['quality']) ?? 0;
+    return InkWell(onTap: () => _showDetails(m), borderRadius: BorderRadius.circular(20), child: Container(
+      margin: const EdgeInsets.fromLTRB(16,4,16,10), padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: featured ? const Color(0xFF142233) : panel, borderRadius: BorderRadius.circular(20), border: Border.all(color: featured ? cyan.withOpacity(.32) : line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(_s(m['league']).toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: muted, fontSize: 9, letterSpacing: 1.1, fontWeight: FontWeight.w900))),
+          _pill(_s(p['qualityLabel']).toUpperCase() + ' ' + quality.round().toString() + '%', _qualityColor(quality)),
+        ]),
+        const SizedBox(height: 13),
+        Row(children: [
+          Expanded(child: Text(home, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14))),
+          Column(children: [
+            Text(_s(m['time']), style: TextStyle(color: muted, fontSize: 10)),
+            const SizedBox(height: 3), Text(_s(p['score']), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: lime)),
+          ]),
+          Expanded(child: Text(away, textAlign: TextAlign.end, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14))),
+        ]),
+        const SizedBox(height: 15),
+        Row(children: [
+          _prob('1', h, pick == '1'), const SizedBox(width: 7),
+          _prob('X', d, pick == 'X'), const SizedBox(width: 7),
+          _prob('2', a, pick == '2'),
+        ]),
+        const SizedBox(height: 13),
+        Row(children: [
+          Expanded(child: Text('xG ' + _s(p['xgHome']) + ' – ' + _s(p['xgAway']) + '   ·   HT ' + _s(p['ht']), style: TextStyle(color: muted, fontSize: 10, fontWeight: FontWeight.w600))),
+          const Icon(Icons.chevron_right, color: cyan, size: 18),
+        ]),
+      ]),
+    ));
   }
 
-  String _statNumber(double value)=>value%1==0?value.toInt().toString():value.toStringAsFixed(1);
+  Widget _prob(String label, double value, bool selected) => Expanded(child: Container(
+    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+    decoration: BoxDecoration(color: selected ? lime.withOpacity(.12) : const Color(0xFF0A1220), borderRadius: BorderRadius.circular(11), border: Border.all(color: selected ? lime.withOpacity(.55) : line)),
+    child: Column(children: [
+      Text(label, style: TextStyle(color: selected ? lime : muted, fontSize: 10, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 3), Text(value.round().toString() + '%', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: selected ? lime : Colors.white)),
+    ]),
+  ));
 
-  Widget _emptyStats(String message)=>Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:const Color(0xFF121725),borderRadius:BorderRadius.circular(16)),child:Row(children:[const Icon(Icons.insights_rounded,color:Color(0xFF8B7CFF)),const SizedBox(width:10),Expanded(child:Text(message,style:const TextStyle(color:Color(0xFF9299AD),fontSize:11,height:1.4)))]));
+  Widget _pill(String text, Color color) => Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5), decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(.35))), child: Text(text, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: .5)));
+
+  Color _qualityColor(double q) => q >= 70 ? lime : (q >= 45 ? const Color(0xFFFFC66D) : const Color(0xFFFF8888));
+
+  Widget _empty(String title, String body) => Container(margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(18), border: Border.all(color: line)), child: Column(children: [const Icon(Icons.query_stats, size: 32, color: cyan), const SizedBox(height: 12), Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 6), Text(body, textAlign: TextAlign.center, style: const TextStyle(color: muted, fontSize: 12))]));
+
+  Widget _methodPanel() => Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    _sectionTitle('SPE-1 · SUPER PREDICTION ENGINE', 'Motore spiegabile, non una scatola nera'),
+    _methodStep('01', 'Forma recente', 'Ultimi risultati della stessa squadra nella stessa competizione, con peso maggiore alle gare più recenti.'),
+    _methodStep('02', 'Modello dei gol', 'Distribuzione di Poisson per calcolare 1-X-2, risultato esatto, Over 2.5 e Goal/No Goal.'),
+    _methodStep('03', 'Segnali secondari', 'Tiri in porta e favorito di mercato possono correggere la stima solo entro limiti stretti.'),
+    _methodStep('04', 'Qualità del campione', 'Le partite con pochi dati mostrano una fiducia inferiore; non vengono promosse automaticamente come migliori.'),
+    const SizedBox(height: 12),
+    Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: line)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('STATO DELLE FONTI', style: TextStyle(color: cyan, fontWeight: FontWeight.w900, letterSpacing: 1)),
+      const SizedBox(height: 8), Text(feedStatus + ' · ' + source, style: const TextStyle(fontWeight: FontWeight.w700)),
+      const SizedBox(height: 6), Text('Un feed ridotto non viene presentato come copertura completa. I risultati storici possono essere insufficienti per alcuni campionati.', style: TextStyle(color: muted, fontSize: 12, height: 1.45)),
+    ])),
+  ]));
+
+  Widget _methodStep(String number, String title, String body) => Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: line)), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Container(width: 34, height: 34, decoration: BoxDecoration(color: lime.withOpacity(.12), borderRadius: BorderRadius.circular(10)), alignment: Alignment.center, child: Text(number, style: const TextStyle(color: lime, fontWeight: FontWeight.w900))),
+    const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 5), Text(body, style: TextStyle(color: muted, fontSize: 12, height: 1.45))])),
+  ]));
+
+  void _showDetails(Map<String,dynamic> m) {
+    final p = _prediction(m);
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: bg, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))), builder: (context) => DraggableScrollableSheet(
+      expand: false, initialChildSize: .84, maxChildSize: .95, builder: (context, scroll) => ListView(controller: scroll, padding: const EdgeInsets.fromLTRB(20,14,20,30), children: [
+        Center(child: Container(width: 42, height: 4, decoration: BoxDecoration(color: line, borderRadius: BorderRadius.circular(5)))),
+        const SizedBox(height: 20),
+        Text(_s(m['league']).toUpperCase(), textAlign: TextAlign.center, style: const TextStyle(color: cyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.4)),
+        const SizedBox(height: 10),
+        Text(_s(m['home']) + '  vs  ' + _s(m['away']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 16),
+        Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(18), border: Border.all(color: line)), child: Column(children: [
+          Text(_s(p['score']), style: const TextStyle(fontSize: 42, color: lime, fontWeight: FontWeight.w900)),
+          Text('Risultato esatto più probabile · probabilità ' + _s(p['scoreP']) + '%', style: const TextStyle(color: muted, fontSize: 11)),
+          const SizedBox(height: 18),
+          Row(children: [
+            _detailMetric('xG casa', _s(p['xgHome'])), _detailMetric('xG ospite', _s(p['xgAway'])), _detailMetric('HT stimato', _s(p['ht'])),
+          ]),
+        ])),
+        const SizedBox(height: 18), const Text('PROBABILITÀ 1-X-2', style: TextStyle(color: cyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+        const SizedBox(height: 10), Row(children: [_prob('1', _num(p['home']) ?? 0, p['pick'] == '1'), const SizedBox(width: 7), _prob('X', _num(p['draw']) ?? 0, p['pick'] == 'X'), const SizedBox(width: 7), _prob('2', _num(p['away']) ?? 0, p['pick'] == '2')]),
+        const SizedBox(height: 18), Row(children: [_detailMetric('Over 2.5', _s(p['over25']) + '%'), _detailMetric('Goal', _s(p['btts']) + '%'), _detailMetric('Qualità dati', _s(p['quality']) + '%')]),
+        const SizedBox(height: 18), const Text('ALTRI RISULTATI POSSIBILI', style: TextStyle(color: cyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+        const SizedBox(height: 8),
+        ...((p['scores'] as List? ?? const []).whereType<Map>().map((s) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [
+          Expanded(child: Text(_s(s['score']), style: const TextStyle(fontWeight: FontWeight.w800))),
+          Expanded(flex: 4, child: ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: ((_num(s['p']) ?? 0) / 100).clamp(0,1), minHeight: 7, backgroundColor: line, color: cyan))),
+          const SizedBox(width: 12), Text(_s(s['p']) + '%', style: const TextStyle(fontWeight: FontWeight.w800)),
+        ])))),
+        const SizedBox(height: 18), const Text('PERCHÉ IL MOTORE PENSA COSÌ', style: TextStyle(color: cyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+        const SizedBox(height: 8),
+        ...((p['reasons'] as List? ?? const []).map((r) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.check_circle_outline, color: lime, size: 16), const SizedBox(width: 8), Expanded(child: Text(r.toString(), style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.4)))])))),
+        const SizedBox(height: 14), Text(_s(p['model']) + ' · Campione casa ' + _s(p['samplesHome']) + ', ospite ' + _s(p['samplesAway']), style: const TextStyle(color: muted, fontSize: 10)),
+      ]),
+    ));
+  }
+
+  Widget _detailMetric(String label, String value) => Expanded(child: Column(children: [Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)), const SizedBox(height: 4), Text(label, textAlign: TextAlign.center, style: const TextStyle(color: muted, fontSize: 9))]));
 }
-class _Background extends StatelessWidget { const _Background(); @override Widget build(BuildContext c)=>IgnorePointer(child:Stack(children:[
-  Positioned(top:-100,right:-80,child:Container(width:300,height:300,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF5545C9).withValues(alpha:.10),boxShadow:[BoxShadow(color:const Color(0xFF8B7CFF).withValues(alpha:.12),blurRadius:90,spreadRadius:25)]))),
-  Positioned(bottom:80,left:-100,child:Container(width:260,height:260,decoration:BoxDecoration(shape:BoxShape.circle,color:const Color(0xFF1AA8D8).withValues(alpha:.07),boxShadow:[BoxShadow(color:const Color(0xFF39D9FF).withValues(alpha:.10),blurRadius:80,spreadRadius:20)]))),
-]));}
