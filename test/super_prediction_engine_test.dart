@@ -27,6 +27,17 @@ void main() {
     expect(weak['qualityLabel'], 'Limitata');
   });
 
+
+  test('feed form differentiates teams when historical sample is missing', () {
+    final weakHome = _fixture(10, 1800000000)
+      ..['preMatchStats'] = ['Forma casa: 0V 1N 2P · 2-8 gol · 1/9 pt'];
+    final strongHome = _fixture(11, 1800000000)
+      ..['preMatchStats'] = ['Forma casa: 3V 0N 0P · 8-1 gol · 9/9 pt'];
+    final weak = engine.predict(fixtures: [weakHome], history: []).single['prediction'] as Map;
+    final strong = engine.predict(fixtures: [strongHome], history: []).single['prediction'] as Map;
+    expect(strong['xgHome'], greaterThan(weak['xgHome']));
+  });
+
   test('same-team form is scoped to the same competition', () {
     final history = _history(1800000000);
     history.add({
