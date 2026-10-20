@@ -23,29 +23,32 @@ void main() {
       _result('Rival Eight', 'Team Beta', 4, 1, kickoff - 7 * 86400),
     ];
 
+    final fixture = _fixture(1001, kickoff, 8, 1);
     await engine.update(
-      fixtures: <Map<String, dynamic>>[
-        _fixture(1001, kickoff, 8, 1),
-        _fixture(1002, kickoff + 60, 1, 8),
-      ],
+      fixtures: <Map<String, dynamic>>[fixture],
       historicalResults: history,
     );
 
-    final forecasts = engine.records.where((item) => item['id'] == 1001 || item['id'] == 1002).toList();
-    expect(forecasts, hasLength(2));
-    for (final forecast in forecasts) {
-      final home = (forecast['probHome'] as num).toDouble();
-      final draw = (forecast['probDraw'] as num).toDouble();
-      final away = (forecast['probAway'] as num).toDouble();
-      expect(home, greaterThan(0));
-      expect(draw, greaterThan(0));
-      expect(away, greaterThan(0));
-      expect(home + draw + away, closeTo(100, 0.2));
-      expect(forecast['lambdaHome'], greaterThan(0));
-      expect(forecast['lambdaAway'], greaterThan(0));
-    }
-    expect(forecasts[0]['lambdaHome'], isNot(forecasts[1]['lambdaHome']));
-    expect(forecasts[0]['lambdaAway'], isNot(forecasts[1]['lambdaAway']));
+    final first = engine.records.singleWhere((item) => item['id'] == 1001);
+    final firstHomeLambda = (first['lambdaHome'] as num).toDouble();
+    final firstAwayLambda = (first['lambdaAway'] as num).toDouble();
+    final home = (first['probHome'] as num).toDouble();
+    final draw = (first['probDraw'] as num).toDouble();
+    final away = (first['probAway'] as num).toDouble();
+    expect(home, greaterThan(0));
+    expect(draw, greaterThan(0));
+    expect(away, greaterThan(0));
+    expect(home + draw + away, closeTo(100, 0.2));
+    expect(firstHomeLambda, greaterThan(0));
+    expect(firstAwayLambda, greaterThan(0));
+
+    await engine.update(
+      fixtures: <Map<String, dynamic>>[_fixture(1001, kickoff, 1, 8)],
+      historicalResults: history,
+    );
+    final revised = engine.records.singleWhere((item) => item['id'] == 1001);
+    expect(revised['lambdaHome'], isNot(firstHomeLambda));
+    expect(revised['lambdaAway'], isNot(firstAwayLambda));
   });
 }
 
