@@ -53,7 +53,6 @@ class SuperPredictionEngine {
       final matrix = List.generate(8, (h) => List.generate(8, (a) => _pois(lh, h) * _pois(la, a)));
       var p1 = 0.0, px = 0.0, p2 = 0.0;
       var over15 = 0.0, over25 = 0.0, over35 = 0.0, btts = 0.0;
-      var firstHalfHome = 0.0, firstHalfDraw = 0.0, firstHalfAway = 0.0;
       var best = -1.0;
       var bh = 0, ba = 0;
       for (var h = 0; h < 8; h++) {
