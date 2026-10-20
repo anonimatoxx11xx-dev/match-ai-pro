@@ -25,13 +25,27 @@ class SuperPredictionEngine {
       final af = _form(away, _s(f['away']));
       var lh = homeBase * _clamp((hf['scored']! + 1.35) / 2.70, .58, 1.62) / _clamp((hf['conceded']! + 1.20) / 2.40, .58, 1.62);
       var la = awayBase * _clamp((af['scored']! + 1.15) / 2.30, .58, 1.62) / _clamp((af['conceded']! + 1.42) / 2.84, .58, 1.62);
+      // The live feed may already contain verified recent-form summaries even
+      // when the historical results cache has no rows for a team. Use those
+      // summaries as a bounded fallback instead of assigning every unknown
+      // team the same league-average profile.
+      final lines = f['preMatchStats'] is List
+          ? (f['preMatchStats'] as List).map((e) => e.toString()).toList()
+          : <String>[];
+      final homeForm = _feedForm(lines, 'Forma casa:');
+      final awayForm = _feedForm(lines, 'Forma ospiti:');
+      if (home.isEmpty && homeForm != null) {
+        lh *= _clamp((homeForm['scored']! + 0.75) / (homeForm['conceded']! + 0.85), .62, 1.55);
+      }
+      if (away.isEmpty && awayForm != null) {
+        la *= _clamp((awayForm['scored']! + 0.75) / (awayForm['conceded']! + 0.85), .62, 1.55);
+      }
       final stats = _map(f['stats']);
       final hs = _n(stats['homeOn']), asot = _n(stats['awayOn']);
       if (hs != null && asot != null && hs >= 0 && asot >= 0 && hs <= 15 && asot <= 15) {
         lh *= _clamp(1 + (hs - asot) * .025, .88, 1.12);
         la *= _clamp(1 + (asot - hs) * .025, .88, 1.12);
       }
-      final lines = f['preMatchStats'] is List ? (f['preMatchStats'] as List).map((e) => e.toString()).toList() : <String>[];
       final market = _market(lines);
       if (market.isNotEmpty && _same(market, _s(f['home'])) && !_same(market, _s(f['away']))) lh *= 1.05;
       if (market.isNotEmpty && _same(market, _s(f['away'])) && !_same(market, _s(f['home']))) la *= 1.05;
@@ -95,6 +109,22 @@ class SuperPredictionEngine {
     }
     return {'scored': (scored + 2.7) / (weight + 2), 'conceded': (conceded + 2.5) / (weight + 2)};
   }
+  Map<String, double>? _feedForm(List<String> lines, String prefix) {
+    for (final line in lines) {
+      if (!line.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+      // Expected feed shape: "Forma casa: ... · 2-8 gol · 1/9 pt".
+      final match = RegExp(r'([0-9]+(?:\\.[0-9]+)?)-([0-9]+(?:\\.[0-9]+)?)\\s*gol', caseSensitive: false).firstMatch(line);
+      final points = RegExp(r'([0-9]+)\\s*/\\s*([0-9]+)\\s*pt', caseSensitive: false).firstMatch(line);
+      if (match == null || points == null) return null;
+      final scored = double.tryParse(match.group(1)!);
+      final conceded = double.tryParse(match.group(2)!);
+      final played = double.tryParse(points.group(2)!);
+      if (scored == null || conceded == null || played == null || played <= 0 || played > 20) return null;
+      return {'scored': scored / played, 'conceded': conceded / played};
+    }
+    return null;
+  }
+
   double _pois(double l, int k) { var p = math.exp(-l); for (var i = 1; i <= k; i++) p *= l / i; return p; }
   String _market(List<String> lines) {
     for (final line in lines) { final m = RegExp(r'Mercato favorito:\s*(.+)', caseSensitive:false).firstMatch(line); if (m != null) return m.group(1)!.trim(); }
