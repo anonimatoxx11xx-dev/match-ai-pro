@@ -208,7 +208,7 @@ class ScorePredictionEngine {
 
     var baseHome = ((homeAttack * 0.58) + (awayConceded * 0.42)) * 1.06;
     var baseAway = ((awayAttack * 0.58) + (homeConceded * 0.42)) * 0.94;
-    final h2h = _recentHeadToHead(homeName, awayName, kickOff, historicalResults);
+    final h2h = _recentHeadToHead(homeName, awayName, leagueName, kickOff, historicalResults);
     if ((h2h['games'] as int) >= 3) {
       final h2hHome = h2h['homeGF'] as double;
       final h2hAway = h2h['awayGF'] as double;
@@ -328,7 +328,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v11-competition-aliases-shots',
+      'score-model-v12-league-specific-h2h',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
@@ -603,13 +603,20 @@ class ScorePredictionEngine {
   Map<String, dynamic> _recentHeadToHead(
     String homeName,
     String awayName,
+    String fixtureLeague,
     int kickOff,
     List<Map<String, dynamic>> history,
   ) {
-    if (kickOff <= 0) return <String, dynamic>{'games': 0, 'homeGF': 0.0, 'awayGF': 0.0};
+    if (kickOff <= 0 || _leagueKey(fixtureLeague).isEmpty) {
+      return <String, dynamic>{'games': 0, 'homeGF': 0.0, 'awayGF': 0.0};
+    }
+    final targetLeague = _leagueKey(fixtureLeague);
     final rows = <Map<String, dynamic>>[];
     final earliest = kickOff - const Duration(days: 365).inSeconds;
     for (final result in history) {
+      final status = (result['status'] ?? '').toString().toUpperCase();
+      if (status != 'FT' && status != 'FINISHED') continue;
+      if (_leagueKey((result['league'] ?? '').toString()) != targetLeague) continue;
       final timestamp = _integer(result['timestamp']) ?? 0;
       if (timestamp <= earliest || timestamp >= kickOff) continue;
       final status = (result['status'] ?? '').toString().toUpperCase();
