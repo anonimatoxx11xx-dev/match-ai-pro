@@ -2273,6 +2273,59 @@ jobs:
           except Exception:
               pass
 
+          # Add an independent historical-results source when a token is configured.
+          # football-data.org is supplementary: it never overwrites an existing
+          # provider row unless the exact teams/date/competition key matches.
+          football_data_token = os.environ.get("FOOTBALL_DATA_TOKEN", "").strip()
+          if football_data_token:
+              try:
+                  from urllib.parse import urlencode
+                  date_from = (NOW.date() - timedelta(days=120)).isoformat()
+                  date_to = NOW.date().isoformat()
+                  url = "https://api.football-data.org/v4/matches?" + urlencode({
+                      "dateFrom": date_from, "dateTo": date_to
+                  })
+                  response = requests.get(
+                      url,
+                      headers={"X-Auth-Token": football_data_token, "Accept": "application/json"},
+                      timeout=25,
+                  )
+                  response.raise_for_status()
+                  payload = response.json()
+                  added_fd = 0
+                  for match in payload.get("matches") or []:
+                      score = match.get("score") or {}
+                      full_time = score.get("fullTime") or {}
+                      home_goals, away_goals = as_int(full_time.get("home")), as_int(full_time.get("away"))
+                      if home_goals is None or away_goals is None or str(match.get("status")) != "FINISHED":
+                          continue
+                      comp = match.get("competition") or {}
+                      home_name = str((match.get("homeTeam") or {}).get("name") or "").strip()
+                      away_name = str((match.get("awayTeam") or {}).get("name") or "").strip()
+                      date_value = str(match.get("utcDate") or "")
+                      try:
+                          ts = int(datetime.fromisoformat(date_value.replace("Z", "+00:00")).timestamp())
+                      except Exception:
+                          ts = 0
+                      league = str(comp.get("name") or "").strip()
+                      if not home_name or not away_name or not league or not ts:
+                          continue
+                      row = {
+                          "id": as_int(match.get("id")) or 0,
+                          "home": home_name, "away": away_name, "league": league,
+                          "leagueSlug": str(comp.get("code") or "").lower(),
+                          "timestamp": ts, "status": "FT",
+                          "scoreHome": home_goals, "scoreAway": away_goals,
+                          "sources": ["football-data.org"],
+                      }
+                      HISTORICAL_RESULTS[("football-data.org", row["id"])] = row
+                      added_fd += 1
+                  print("football-data.org historical results added:", added_fd)
+              except Exception as exc:
+                  print("football-data.org supplementary results unavailable:", exc)
+          else:
+              print("football-data.org token not configured; using available public feeds.")
+
           combined_history = list(HISTORICAL_RESULTS.values())
           combined_history.extend(x for x in records if x.get("status") == "FT")
           cutoff_ts = int((NOW - timedelta(days=120)).timestamp())
