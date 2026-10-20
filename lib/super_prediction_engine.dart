@@ -118,8 +118,12 @@ class SuperPredictionEngine {
       if (match == null || points == null) return null;
       final scored = double.tryParse(match.group(1)!);
       final conceded = double.tryParse(match.group(2)!);
-      final played = double.tryParse(points.group(2)!);
-      if (scored == null || conceded == null || played == null || played <= 0 || played > 20) return null;
+      final possiblePoints = double.tryParse(points.group(2)!);
+      // The feed expresses form as earned/possible points (e.g. 1/9 pt).
+      // Three possible points per match means matches played = possiblePoints / 3.
+      if (scored == null || conceded == null || possiblePoints == null ||
+          possiblePoints <= 0 || possiblePoints > 60 || possiblePoints % 3 != 0) return null;
+      final played = possiblePoints / 3;
       return {'scored': scored / played, 'conceded': conceded / played};
     }
     return null;
