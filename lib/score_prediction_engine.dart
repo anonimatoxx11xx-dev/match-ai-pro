@@ -307,7 +307,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v7-expanded-form-calibration',
+      'score-model-v8-clean-history-schema',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
