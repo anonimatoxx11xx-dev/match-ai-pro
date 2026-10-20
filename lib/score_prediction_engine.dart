@@ -619,10 +619,6 @@ class ScorePredictionEngine {
       if (_leagueKey((result['league'] ?? '').toString()) != targetLeague) continue;
       final timestamp = _integer(result['timestamp']) ?? 0;
       if (timestamp <= earliest || timestamp >= kickOff) continue;
-      final status = (result['status'] ?? '').toString().toUpperCase();
-      if (status != 'FT' && status != 'FINISHED') continue;
-      final league = (result['league'] ?? '').toString().trim().toLowerCase();
-      if (league.isEmpty || const {'football', 'soccer', 'calcio'}.contains(league)) continue;
       final homeGoals = _integer(result['scoreHome']);
       final awayGoals = _integer(result['scoreAway']);
       if (homeGoals == null || awayGoals == null) continue;
