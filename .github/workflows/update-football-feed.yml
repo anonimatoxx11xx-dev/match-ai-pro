@@ -324,44 +324,47 @@ jobs:
               return deduped, source_url
 
           def load_espn_recent_results(days_back=7):
-              """Build recent team form from ESPN's public, keyless scoreboards."""
+              """Build team form from competition-specific ESPN scoreboards.
+              The global /all endpoint often labels every event as generic Football,
+              which makes the app correctly reject those results as unverified league history.
+              """
               today = NOW.date()
               events_by_team = {}
               supported_slugs = {
-                  "all","eng.1","eng.2","eng.3","eng.4","eng.5","esp.1","esp.2",
+                  "eng.1","eng.2","eng.3","eng.4","eng.5","esp.1","esp.2",
                   "ita.1","ita.2","ger.1","ger.2","fra.1","fra.2","ned.1","tur.1",
                   "uefa.champions","uefa.europa","uefa.europa.conf"
               }
-              slug_by_competition = {
-                  "premierleague":"eng.1","englishpremierleague":"eng.1",
-                  "championship":"eng.2","eflchampionship":"eng.2","skybetchampionship":"eng.2",
-                  "leagueone":"eng.3","eflleagueone":"eng.3","leaguetwo":"eng.4","eflleaguetwo":"eng.4",
-                  "nationalleague":"eng.5",
-                  "laliga":"esp.1","spanishlaliga":"esp.1","segunda":"esp.2","segundadivision":"esp.2",
-                  "laligahypermotion":"esp.2","seriea":"ita.1","italianseriea":"ita.1","serieb":"ita.2",
-                  "bundesliga":"ger.1","germanbundesliga":"ger.1","2bundesliga":"ger.2","zweitebundesliga":"ger.2",
-                  "ligue1":"fra.1","frenchligue1":"fra.1","ligue2":"fra.2","eredivisie":"ned.1",
-                  "turkishsuperlig":"tur.1","superlig":"tur.1","uefachampionsleague":"uefa.champions",
-                  "championsleague":"uefa.champions","uefaeuropaleague":"uefa.europa",
-                  "europaleague":"uefa.europa","uefaconferenceleague":"uefa.europa.conf",
-                  "conferenceleague":"uefa.europa.conf"
-              }
-              def competition_slug(comp):
-                  meta = comp.get("league") or comp.get("competition") or {}
-                  if not isinstance(meta, dict):
-                      meta = {}
-                  candidate = str(meta.get("slug") or "").strip().lower()
-                  if candidate in supported_slugs:
-                      return candidate
-                  name = normalize_team_name(meta.get("name") or comp.get("name") or "")
-                  return slug_by_competition.get(name, "")
+              history_leagues = [(slug, label) for slug, label in TOP_ESPN_LEAGUES
+                                 if slug in supported_slugs]
+
+              tasks = []
               for offset in range(1, days_back + 1):
                   day = today.fromordinal(today.toordinal() - offset)
                   date_key = day.strftime("%Y%m%d")
-                  url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates={date_key}&limit=1000"
+                  for league_slug, league_name in history_leagues:
+                      tasks.append((date_key, league_slug, league_name))
+
+              def fetch_history_scoreboard(task):
+                  date_key, league_slug, league_name = task
+                  url = (
+                      f"https://site.api.espn.com/apis/site/v2/sports/soccer/"
+                      f"{league_slug}/scoreboard?dates={date_key}&limit=1000"
+                  )
                   try:
-                      payload = get_json(url, 25)
-                      for event in payload.get("events") or []:
+                      payload = get_json(url, 20)
+                      return date_key, league_slug, league_name, payload.get("events") or [], None
+                  except Exception as exc:
+                      return date_key, league_slug, league_name, [], str(exc)
+
+              with ThreadPoolExecutor(max_workers=16) as pool:
+                  futures = [pool.submit(fetch_history_scoreboard, task) for task in tasks]
+                  for future in as_completed(futures):
+                      date_key, league_slug, league_name, events, error = future.result()
+                      if error:
+                          print("ESPN historical scoreboard failed:", league_slug, date_key, error)
+                          continue
+                      for event in events:
                           competitions = event.get("competitions") or []
                           comp = competitions[0] if competitions else {}
                           competitors = comp.get("competitors") or []
@@ -384,44 +387,13 @@ jobs:
                               continue
                           event_time = parse_provider_timestamp(event.get("date"))
                           event_id = as_int(event.get("id"))
-                          competitors_meta = (comp.get("league") or comp.get("competition") or event.get("league") or {})
-                          if not isinstance(competitors_meta, dict):
-                              competitors_meta = {}
-                          league_slug = competition_slug({**comp, "league": competitors_meta})
-                          # ESPN's global scoreboard often omits the competition name
-                          # inside competitions[0]. Never save these as generic "Football":
-                          # the app correctly excludes generic competitions from team history.
-                          league_name = str(competitors_meta.get("name") or "").strip()
-                          if not league_name or league_name.lower() in {"football", "soccer", "calcio"}:
-                              league_name = {
-                                  "eng.1": "Premier League",
-                                  "eng.2": "EFL Championship",
-                                  "eng.3": "League One",
-                                  "eng.4": "League Two",
-                                  "eng.5": "National League",
-                                  "esp.1": "La Liga",
-                                  "esp.2": "La Liga 2",
-                                  "ita.1": "Serie A",
-                                  "ita.2": "Serie B",
-                                  "ger.1": "Bundesliga",
-                                  "ger.2": "2. Bundesliga",
-                                  "fra.1": "Ligue 1",
-                                  "fra.2": "Ligue 2",
-                                  "ned.1": "Eredivisie",
-                                  "tur.1": "Turkish Super Lig",
-                                  "uefa.champions": "UEFA Champions League",
-                                  "uefa.europa": "UEFA Europa League",
-                                  "uefa.europa.conf": "UEFA Conference League",
-                              }.get(league_slug, "")
-                          if not league_name:
-                              season_name = (event.get("season") or {}).get("displayName") if isinstance(event.get("season"), dict) else ""
-                              league_name = str(season_name or "Football")
                           if event_id is not None:
                               HISTORICAL_RESULTS[str(event_id)] = {
                                   "id": event_id,
                                   "home": hn,
                                   "away": an,
                                   "league": league_name,
+                                  "leagueSlug": league_slug,
                                   "time": datetime.fromtimestamp(event_time, TZ).strftime("%H:%M") if event_time else "--:--",
                                   "timestamp": event_time,
                                   "status": "FT",
@@ -429,16 +401,15 @@ jobs:
                                   "scoreAway": aa,
                                   "scoreHTHome": halftime_score(home),
                                   "scoreHTAway": halftime_score(away),
-                                  "sources": ["ESPN historical results"],
+                                  "sources": ["ESPN competition-specific historical results"],
                               }
-                          rec = (hn, an, hs, aa, event_time)
                           for team_name, gf, ga in ((hn, hs, aa), (an, aa, hs)):
                               key = normalize_team_name(team_name)
                               if not key:
                                   continue
                               events_by_team.setdefault(key, []).append({
                                   "name": team_name,
-                                  "eventId": as_int(event.get("id")),
+                                  "eventId": event_id,
                                   "leagueSlug": league_slug,
                                   "leagueName": league_name,
                                   "home": hn,
@@ -450,11 +421,10 @@ jobs:
                                   "win": gf > ga,
                                   "draw": gf == ga,
                               })
-                  except Exception as exc:
-                      print("ESPN recent results failed:", date_key, exc)
               for key in events_by_team:
                   events_by_team[key].sort(key=lambda x: x.get("timestamp") or 0, reverse=True)
                   events_by_team[key] = events_by_team[key][:6]
+              print("ESPN competition-specific historical results:", len(HISTORICAL_RESULTS))
               print("ESPN recent-form teams:", len(events_by_team))
               return events_by_team
 
