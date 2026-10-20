@@ -51,7 +51,10 @@ class SuperPredictionEngine {
       if (market.isNotEmpty && _same(market, _s(f['away'])) && !_same(market, _s(f['home']))) la *= 1.05;
       lh = _clamp(lh, .2, 3.8); la = _clamp(la, .15, 3.4);
       final matrix = List.generate(8, (h) => List.generate(8, (a) => _pois(lh, h) * _pois(la, a)));
-      var p1 = 0.0, px = 0.0, p2 = 0.0, over = 0.0, btts = 0.0, best = -1.0;
+      var p1 = 0.0, px = 0.0, p2 = 0.0;
+      var over15 = 0.0, over25 = 0.0, over35 = 0.0, btts = 0.0;
+      var firstHalfHome = 0.0, firstHalfDraw = 0.0, firstHalfAway = 0.0;
+      var best = -1.0;
       var bh = 0, ba = 0;
       for (var h = 0; h < 8; h++) {
         for (var a = 0; a < 8; a++) {
@@ -59,7 +62,9 @@ class SuperPredictionEngine {
           if (h > a) p1 += p;
           if (h == a) px += p;
           if (h < a) p2 += p;
-          if (h + a >= 3) over += p;
+          if (h + a >= 2) over15 += p;
+          if (h + a >= 3) over25 += p;
+          if (h + a >= 4) over35 += p;
           if (h > 0 && a > 0) btts += p;
           if (p > best) { best = p; bh = h; ba = a; }
         }
@@ -86,7 +91,14 @@ class SuperPredictionEngine {
         'xgHome': double.parse(lh.toStringAsFixed(2)), 'xgAway': double.parse(la.toStringAsFixed(2)),
         'score': bh.toString() + '-' + ba.toString(), 'scoreP': (best / sum * 100).round(),
         'ht': (lh * .44).round().toString() + '-' + (la * .44).round().toString(),
-        'over25': (over / sum * 100).round(), 'btts': (btts / sum * 100).round(),
+        'over15': (over15 / sum * 100).round(),
+        'under15': ((sum - over15) / sum * 100).round(),
+        'over25': (over25 / sum * 100).round(),
+        'under25': ((sum - over25) / sum * 100).round(),
+        'over35': (over35 / sum * 100).round(),
+        'under35': ((sum - over35) / sum * 100).round(),
+        'btts': (btts / sum * 100).round(),
+        'noBtts': ((sum - btts) / sum * 100).round(),
         'pick': pick, 'quality': quality, 'samplesHome': home.length, 'samplesAway': away.length,
         'qualityLabel': quality >= 70 ? 'Buona' : (quality >= 45 ? 'Media' : 'Limitata'),
         'scores': scores.take(5).map((e) => {'score': e['score'], 'p': (((e['p'] as double) / sum) * 100).round()}).toList(),
