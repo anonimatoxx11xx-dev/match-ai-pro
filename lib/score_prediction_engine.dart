@@ -307,7 +307,7 @@ class ScorePredictionEngine {
     final signature = jsonEncode(<dynamic>[
       // Bump model version so forecasts saved under the unshrunk model
       // are recalculated on the next app update.
-      'score-model-v8-clean-history-schema',
+      'score-model-v9-expanded-verified-history',
       relevantForm,
       homeForm['gfAvg'], homeForm['gaAvg'], homeGames,
       awayForm['gfAvg'], awayForm['gaAvg'], awayGames,
@@ -480,7 +480,7 @@ class ScorePredictionEngine {
   ) {
     if (team.trim().isEmpty || kickOff <= 0) return null;
     final rows = <Map<String, dynamic>>[];
-    final earliest = kickOff - const Duration(days: 75).inSeconds;
+    final earliest = kickOff - const Duration(days: 120).inSeconds;
     for (final result in history) {
       final status = (result['status'] ?? '').toString().toUpperCase();
       if (status != 'FT' && status != 'FINISHED') continue;
@@ -504,7 +504,7 @@ class ScorePredictionEngine {
     rows.sort((a, b) =>
         (_integer(b['timestamp']) ?? 0).compareTo(_integer(a['timestamp']) ?? 0));
     if (rows.length < 3) return null;
-    final recent = rows.take(6).toList();
+    final recent = rows.take(10).toList();
     var weightedGoals = 0.0;
     var weightedAllowed = 0.0;
     var weightTotal = 0.0;
