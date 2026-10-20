@@ -323,7 +323,13 @@ jobs:
               print("ESPN curated top-league fallback:", len(deduped), "events")
               return deduped, source_url
 
-          def load_espn_recent_results(days_back=7):
+          def load_espn_recent_results(days_back=None):
+              # A once-daily deeper refresh builds a useful rolling sample without
+              # multiplying hundreds of historical requests on every 15-minute run.
+              deep_history_refresh = NOW.hour == 3 and NOW.minute < 15
+              if days_back is None:
+                  days_back = 30 if deep_history_refresh else 7
+              print("ESPN history window:", days_back, "days")
               """Build team form from competition-specific ESPN scoreboards.
               The global /all endpoint often labels every event as generic Football,
               which makes the app correctly reject those results as unverified league history.
@@ -2259,7 +2265,7 @@ jobs:
                       if not league_name or league_name in {"football", "soccer", "calcio"}:
                           continue
                       old_ts = as_int(old_result.get("timestamp")) or 0
-                      if old_ts and old_ts >= int((NOW - timedelta(days=35)).timestamp()):
+                      if old_ts and old_ts >= int((NOW - timedelta(days=120)).timestamp()):
                           norm_home = normalize_team_name(old_result.get("home"))
                           norm_away = normalize_team_name(old_result.get("away"))
                           local_day = datetime.fromtimestamp(old_ts, TZ).date().isoformat()
@@ -2269,7 +2275,7 @@ jobs:
 
           combined_history = list(HISTORICAL_RESULTS.values())
           combined_history.extend(x for x in records if x.get("status") == "FT")
-          cutoff_ts = int((NOW - timedelta(days=35)).timestamp())
+          cutoff_ts = int((NOW - timedelta(days=120)).timestamp())
           for result in combined_history:
               if not isinstance(result, dict):
                   continue
@@ -2303,7 +2309,7 @@ jobs:
                   "source": "ESPN historical scoreboards + current match feed",
                   "sourcePolicy": "completed results with identifiable competition only",
                   "updatedAt": datetime.now(TZ).isoformat(),
-                  "windowDays": 35,
+                  "windowDays": 120,
                   "results": history_results,
               }, f, ensure_ascii=False, separators=(",", ":"))
 
